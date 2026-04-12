@@ -6,21 +6,49 @@ let myStream;
 let myNickname = '';
 let isHost = false;
 let roomHostId = '';
+let currentRoomId = '';   // เก็บไว้สำหรับ Reconnect
+let isLeaving = false;    // ป้องกัน Reconnect ตอนออกห้องจริงๆ
+let reconnectTimer = null;
 
-// ตัวแปรสำหรับ Data Channel ควบคุม UI
-let hostDataConnection = null; // ท่อส่งข้อมูลกรณีเราเป็น Guest
-let clientDataConnections = {}; // ท่อส่งข้อมูลกรณีเราเป็น Host
-let roomState = {}; // แหล่งเก็บข้อมูลรายชื่อทั้งหมด { peerId: { nickname, role, isTalking } }
+let hostDataConnection = null;
+let clientDataConnections = {};
+let roomState = {};
 
 const remoteAudioContainer = document.createElement('div');
 remoteAudioContainer.id = 'remoteAudios';
 remoteAudioContainer.style.display = 'none';
 document.body.appendChild(remoteAudioContainer);
 
+// --- เสียงแจ้งเตือนแบบ Web Audio (ไม่ต้องโหลดไฟล์) ---
+function playBeep(type) {
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+        if (type === 'join') {
+            osc.frequency.setValueAtTime(660, ctx.currentTime);
+            osc.frequency.setValueAtTime(880, ctx.currentTime + 0.15);
+        } else {
+            osc.frequency.setValueAtTime(880, ctx.currentTime);
+            osc.frequency.setValueAtTime(440, ctx.currentTime + 0.15);
+        }
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.4);
+        // ปิด AudioContext หลังเสียงจบ ป้องกัน leak
+        osc.onended = () => ctx.close();
+    } catch(e) { /* ถ้าเสียงไม่ทำงานก็ข้ามไป */ }
+}
+
 function joinVoiceRoom(roomId, nickname, localStream) {
     myStream = localStream;
     myNickname = nickname;
+    currentRoomId = roomId;
     roomHostId = `clearway-room-${roomId}`;
+    isLeaving = false;
 
     updateConnectionStatus('🟡 กำลังเชื่อมต่อเซิร์ฟเวอร์...', 'muted');
 
@@ -29,45 +57,38 @@ function joinVoiceRoom(roomId, nickname, localStream) {
     // --- กรณีที่ 1: เราได้เป็น Host ---
     peer.on('open', (id) => {
         isHost = true;
-        // บันทึกตัวเองลงใน State แล้วสั่ง Render UI
         roomState[id] = { nickname: myNickname, role: 'Host', isTalking: false };
         updateUIList();
         updateConnectionStatus('🟢 สร้างห้องแล้ว (หัวหน้าทริป)', 'active');
 
-        // รับการเชื่อมต่อ Data Channel จากเพื่อนๆ
         peer.on('connection', (conn) => {
             clientDataConnections[conn.peer] = conn;
 
             conn.on('open', () => {
-                // บันทึกชื่อเพื่อนคนใหม่ลงใน State
                 const guestName = conn.metadata.nickname || 'Unknown';
                 roomState[conn.peer] = { nickname: guestName, role: 'Member', isTalking: false };
 
-                // ส่งรายชื่อให้ Guest รู้ว่าต้องโทร Audio หาใครบ้าง
                 const audioPeers = Object.keys(roomState).filter(p => p !== conn.peer && p !== id);
                 conn.send({ type: 'welcome', roomState: roomState, peersToCall: audioPeers });
 
-                // อัปเดต UI ให้ทุกคนเห็นสมาชิกใหม่
                 broadcastRoomState();
                 updateUIList();
+                playBeep('join'); // 🔔 มีคนเข้าห้อง
             });
 
-            // ดักฟังว่าเพื่อนคนไหนไฟ VAD ติด
             conn.on('data', (data) => {
                 if (data.type === 'mic-status') {
                     roomState[conn.peer].isTalking = data.isActive;
-                    broadcastRoomState(); // Relay ข้อมูลต่อให้ทุกคน
+                    broadcastRoomState();
                     updateUIList();
                 } else if (data.type === 'leave') {
-        // ⚠️ เมื่อได้รับสัญญาณลาจาก Guest
-        handlePeerLeave(conn.peer);
-    }
+                    handlePeerLeave(conn.peer);
+                }
             });
 
             conn.on('close', () => handlePeerLeave(conn.peer));
         });
 
-        // รับสาย Audio จากเพื่อนๆ
         peer.on('call', (call) => {
             call.answer(myStream);
             handleActiveCall(call);
@@ -84,23 +105,20 @@ function joinVoiceRoom(roomId, nickname, localStream) {
             peer.on('open', (guestId) => {
                 updateConnectionStatus('🟡 กำลังเข้าห้อง...', 'muted');
 
-                // 1. โทร Audio หา Host
-                const call = peer.call(roomHostId, myStream);
-                handleActiveCall(call);
-
-                // 2. ต่อ Data Channel หา Host พร้อมส่งชื่อตัวเองไป
+                // ✅ แก้ Race Condition: ต่อ Data Channel ก่อน แล้วค่อยโทร Audio ใน open
                 hostDataConnection = peer.connect(roomHostId, { metadata: { nickname: myNickname } });
 
                 hostDataConnection.on('open', () => {
                     updateConnectionStatus('🟢 เข้าร่วมทริปแล้ว', 'active');
+                    // โทร Audio หลัง Data Channel เปิดแล้วเท่านั้น
+                    const call = peer.call(roomHostId, myStream);
+                    handleActiveCall(call);
                 });
 
-                // ฟังคำสั่งจาก Host (รายชื่อเพื่อน, สถานะไฟไมค์)
                 hostDataConnection.on('data', (data) => {
                     if (data.type === 'welcome') {
                         roomState = data.roomState;
                         updateUIList();
-                        // โทร Audio หาเพื่อนคนอื่นๆ ที่อยู่ในห้องอยู่แล้ว
                         data.peersToCall.forEach(otherGuestId => {
                             const guestCall = peer.call(otherGuestId, myStream);
                             handleActiveCall(guestCall);
@@ -109,25 +127,69 @@ function joinVoiceRoom(roomId, nickname, localStream) {
                         roomState = data.roomState;
                         updateUIList();
                     } else if (data.type === 'leave') {
-                        // ⚠️ เมื่อได้รับสัญญาณลาจากเพื่อน (ที่ Host ส่งต่อมาให้) หรือจาก Host เอง
                         handlePeerLeave(data.peerId);
-                        // ถ้า Host เป็นคนลาเอง ห้องจะแตก
                         if (data.peerId === roomHostId) {
                             alert("หัวหน้าทริปสิ้นสุดการสนทนา");
-                            location.reload(); // รีเฟรชหน้าเว็บเพื่อเคลียร์สถานะทั้งหมด
+                            location.reload();
                         }
                     }
                 });
+
+                hostDataConnection.on('close', () => {
+                    // Host หลุด → พยายาม Reconnect
+                    if (!isLeaving) attemptReconnect();
+                });
             });
 
-            // รับสาย Audio จากเพื่อนๆ ที่เข้ามาทีหลังเรา
             peer.on('call', (call) => {
                 call.answer(myStream);
                 handleActiveCall(call);
             });
+
+            peer.on('disconnected', () => {
+                if (!isLeaving) {
+                    updateConnectionStatus('🟡 สัญญาณหลุด กำลังเชื่อมใหม่...', 'muted');
+                    peer.reconnect();
+                }
+            });
+
+        } else {
+            // จัดการ error อื่นๆ ที่ไม่ใช่ unavailable-id
+            console.error('PeerJS error:', err);
+            updateConnectionStatus(`🔴 เชื่อมต่อไม่ได้ (${err.type})`, 'disconnected');
+            if (!isLeaving && err.type !== 'peer-unavailable') {
+                attemptReconnect();
+            }
+        }
+    });
+
+    // ดักจับสัญญาณหลุดสำหรับ Host
+    peer.on('disconnected', () => {
+        if (!isLeaving) {
+            updateConnectionStatus('🟡 สัญญาณหลุด กำลังเชื่อมใหม่...', 'muted');
+            peer.reconnect();
         }
     });
 }
+
+// --- Reconnect อัตโนมัติ ---
+function attemptReconnect() {
+    if (isLeaving || reconnectTimer) return;
+    updateConnectionStatus('🟡 กำลังเชื่อมต่อใหม่...', 'muted');
+    reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        if (isLeaving) return;
+        // ทำลาย peer เก่าแล้วเข้าห้องใหม่ด้วยข้อมูลเดิม
+        if (peer) { peer.destroy(); peer = null; }
+        roomState = {};
+        clientDataConnections = {};
+        hostDataConnection = null;
+        remoteAudioContainer.innerHTML = '';
+        connectedPeers = {};
+        joinVoiceRoom(currentRoomId, myNickname, myStream);
+    }, 3000); // รอ 3 วินาทีแล้วค่อย reconnect
+}
+
 
 function handleActiveCall(call) {
     connectedPeers[call.peer] = call;
@@ -143,7 +205,6 @@ function handleActiveCall(call) {
     });
 }
 
-// เมื่อเพื่อนหลุด ให้เตะออกจาก List
 function handlePeerLeave(peerId) {
     if (clientDataConnections[peerId]) delete clientDataConnections[peerId];
     if (connectedPeers[peerId]) {
@@ -153,7 +214,10 @@ function handlePeerLeave(peerId) {
     const audio = document.getElementById(`audio-${peerId}`);
     if (audio) audio.remove();
 
-    if (roomState[peerId]) delete roomState[peerId];
+    if (roomState[peerId]) {
+        delete roomState[peerId];
+        playBeep('leave'); // 🔔 มีคนออกห้อง
+    }
     broadcastRoomState();
     updateUIList();
 }
@@ -189,6 +253,8 @@ function updateUIList() {
 }
 
 function leaveVoiceRoom() {
+    isLeaving = true;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     // ⚠️ ส่งสัญญาณบอกเพื่อนก่อนไป
     if (isHost) {
         // ถ้าเราเป็น Host บอกทุกคนในห้อง
