@@ -1,0 +1,23 @@
+{
+  "name": "TripTalk",
+  "short_name": "TripTalk",
+  "description": "เชื่อมต่อทุกการขับขี่ ชัดเจนทุกเส้นทาง",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#121212",
+  "theme_color": "#ff9800",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "asset/img/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "asset/img/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

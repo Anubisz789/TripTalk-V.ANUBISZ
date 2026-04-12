@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TripTalk | Connect the Ride. Clear the Way.</title>
+    <link rel="stylesheet" href="asset/css/style.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="description" content="Connect the Ride. Clear the Way.  เชื่อมต่อทุกการขับขี่ ชัดเจนทุกเส้นทาง">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://triptalk.pages.dev/">
+    <meta property="og:title" content="Triptalk - Connect the Ride. Clear the Way.">
+    <meta property="og:description" content="Connect the Ride. Clear the Way. เชื่อมต่อทุกการขับขี่ ชัดเจนทุกเส้นทาง">
+    <meta property="og:image" content="asset/img/icon-512.png">
+    <link rel=icon type=image/png href="asset/img/icon-512.png">
+    <meta name=theme-color content=#050505>
+    <meta name=apple-mobile-web-app-capable content=yes>
+    <meta name=apple-mobile-web-app-status-bar-style content=black-translucent>
+    <meta name="apple-mobile-web-app-title" content="TripTalk">
+    <link rel="apple-touch-icon" href="/asset/img/icon-192.png">
+    </head>
+<body>
+    <div class="app-container">
+        <header>
+            <h1>TripTalk</h1>
+            <p class="tagline">Connect the Ride. Clear the Way.</p>
+        </header>
+
+        <main>
+            <div class="status-panel">
+                <div class="status-badge disconnected" id="connectionStatusBadge">
+                    <span id="connectionStatusText">🔴 รอการเชื่อมต่อ</span>
+                </div>
+                <div class="status-badge muted" id="micStatusBadge">
+                    <span id="micStatusText">🎙️ ไมค์ปิด (รอเสียง)</span>
+                </div>
+            </div>
+
+            <div class="control-panel">
+                <div class="room-control" id="roomControlPanel">
+                    <label>ชื่อเล่น</label>
+                    <div class="input-group">
+                        <input type="text" id="nicknameInput" placeholder="ชื่อเล่นของคุณ">
+                    </div>
+                    <label>รหัสทริป</label>
+                    <div class="input-group">
+                        <input type="text" id="roomInput" placeholder="รหัสทริป (Room ID)">
+                    </div>
+                </div>
+
+                <div class="members-panel" id="membersPanel" style="display: none;">
+                    <h3>👥 สมาชิกในทริป</h3>
+                    <ul id="memberList" class="member-list">
+                        </ul>
+                </div>
+
+                <button id="startRideBtn" class="btn-primary">
+                    <span class="btn-icon">🏍️</span>
+                    <span id="startBtnText">เริ่มสนทนา</span>
+                </button>
+            </div>
+
+            <div class="settings-panel">
+    <div class="settings-header" id="vadToggle">
+        <h3>⚙️ ตั้งค่าตัดเสียงลม (VAD)</h3>
+        <span class="toggle-icon" id="vadIcon">▼</span>
+    </div>
+
+    <div class="settings-content" id="vadContent">
+        <div class="test-mic-section">
+            <button id="testMicBtn" class="btn-outline">🎙️ ทดสอบระดับเสียง</button>
+            <div class="meter-wrapper">
+                <div class="meter-container">
+                    <div id="volumeMeterFill" class="meter-fill" style="width: 0%;"></div>
+                    <div id="thresholdMarker" class="threshold-marker" style="left: 50%;"></div>
+                </div>
+                <div class="meter-labels">
+                    <span class="hint">เงียบ</span>
+                    <span id="currentVolumeText" class="current-volume-text">ระดับเสียง: 0%</span>
+                    <span class="hint">ดังสุด</span>
+                </div>
+            </div>
+        </div>
+
+        <hr class="divider">
+
+        <div class="setting-item">
+            <div class="setting-label">
+                <label for="thresholdSlider">ความไวไมค์ (Threshold)</label>
+                <span class="setting-value" id="thresholdVal">50%</span>
+            </div>
+            <input type="range" id="thresholdSlider" min="0" max="100" value="50">
+            <p class="hint">เลื่อนให้เส้นขาวหนีเสียงรบกวนพื้นหลัง</p>
+        </div>
+
+        <div class="setting-item">
+            <div class="setting-label">
+                <label for="holdTimeSlider">หน่วงเวลาปิดไมค์ (Hold)</label>
+                <span class="setting-value" id="holdTimeVal">1.5s</span>
+            </div>
+            <input type="range" id="holdTimeSlider" min="500" max="3000" step="100" value="1500">
+            <p class="hint">ป้องกันไมค์ตัดเวลาเว้นวรรคหายใจ</p>
+        </div>
+    </div>
+</div>
+        </main>
+    </div>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="asset/js/webRTC.js"></script>
+    <script src="asset/js/vad.js"></script>
+    <script src="asset/js/app.js"></script>
+</body>
+</html>
