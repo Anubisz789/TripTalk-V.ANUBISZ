@@ -6,7 +6,8 @@ let analyser;
 let micStream;
 let outStream;
 let animationId;
-let isTesting = false;
+let isTesting = false;    // สำหรับปุ่ม "ทดสอบระดับเสียง" เท่านั้น
+let isMainMicOn = false;  // สำหรับทริปจริง (แยกออกจาก isTesting)
 
 // สถานะการทำงานของ VAD (Voice Activity Detection)
 let isVADActive = false;
@@ -25,7 +26,7 @@ const micStatusText = document.getElementById('micStatusText');
 testMicBtn.addEventListener('click', async () => {
     if (isTesting) {
         stopTestMic();
-    } else {
+    } else if (!isMainMicOn) { // ป้องกันกดทดสอบระหว่างทริปจริง
         await startTestMic();
     }
 });
@@ -65,17 +66,14 @@ async function startTestMic() {
 
 function stopTestMic() {
     isTesting = false;
-    cancelAnimationFrame(animationId); // หยุดลูป
+    isVADActive = false;
+    cancelAnimationFrame(animationId);
+    clearTimeout(holdTimeout);
+    holdTimeout = null;
 
-    // ปิดการใช้งานไมค์และคืนทรัพยากร
-    if (micStream) {
-        micStream.getTracks().forEach(track => track.stop());
-    }
-    if (audioContext) {
-        audioContext.close();
-    }
+    if (micStream) { micStream.getTracks().forEach(track => track.stop()); micStream = null; }
+    if (audioContext) { audioContext.close(); audioContext = null; }
 
-    // รีเซ็ต UI กลับเป็นค่าเริ่มต้น
     testMicBtn.innerHTML = '🎙️ ทดสอบระดับเสียง';
     testMicBtn.classList.remove('active');
     volumeMeterFill.style.width = '0%';
@@ -84,7 +82,7 @@ function stopTestMic() {
 }
 
 function checkVolume() {
-    if (!isTesting) return;
+    if (!isTesting && !isMainMicOn) return;
 
     // ดึงค่าความถี่เสียงปัจจุบัน
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -134,33 +132,19 @@ function checkVolume() {
     animationId = requestAnimationFrame(checkVolume);
 }
 
-// ฟังก์ชันอัปเดต Status Badge บนหน้าจอ
-function updateVADStatus(isActive) {
-    if (isActive) {
-        micStatusBadge.classList.remove('muted');
-        micStatusBadge.classList.add('active');
-        micStatusText.innerText = '🎙️ ไมค์เปิด (กำลังส่งเสียง)';
-    } else {
-        micStatusBadge.classList.remove('active');
-        micStatusBadge.classList.add('muted');
-        micStatusText.innerText = '🎙️ ไมค์ปิด (รอเสียง)';
-    }
-}
 
 
-// เพิ่มฟังก์ชันสำหรับใช้งานจริงตอนออกทริป (แยกจากการ Test Mic)
+
 async function startMainMic() {
     if (isTesting) stopTestMic(); // เคลียร์ของเก่าก่อนเผื่อค้าง
+    if (isMainMicOn) return null; // ป้องกันเรียกซ้ำ
 
     try {
         micStream = await navigator.mediaDevices.getUserMedia({
             audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true }
         });
         
-        // ⚠️ [เพิ่มส่วนนี้] แยกร่างสตรีมเพื่อส่งให้เพื่อน
         outStream = micStream.clone();
-        
-        // ปิดเสียง "สตรีมที่จะส่งให้เพื่อน" ไว้ก่อน (รอให้ VAD สั่งเปิด)
         outStream.getAudioTracks()[0].enabled = false; 
 
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -169,14 +153,12 @@ async function startMainMic() {
         analyser = audioContext.createAnalyser();
         analyser.fftSize = 256;
         
-        // ⚠️ เอา "สตรีมตัวหลัก" (ที่เปิดอยู่ตลอด) ไปวิเคราะห์หาความดัง
         const source = audioContext.createMediaStreamSource(micStream);
         source.connect(analyser);
 
-        isTesting = true; 
+        isMainMicOn = true;  // ใช้ flag แยกสำหรับทริปจริง
         checkVolume(); 
 
-        // ⚠️ ส่ง "สตรีมร่างโคลน" (outStream) กลับไปให้ app.js เพื่อเข้า WebRTC
         return outStream; 
     } catch (err) {
         console.error("Mic error:", err);
@@ -185,18 +167,22 @@ async function startMainMic() {
 }
 
 function stopMainMic() {
-    isTesting = false;
+    isMainMicOn = false;
+    isVADActive = false;
     cancelAnimationFrame(animationId);
+    clearTimeout(holdTimeout);
+    holdTimeout = null;
     
-    // ⚠️ ต้องสั่งหยุดการทำงานของสตรีมทั้ง 2 ตัว
     if (micStream) micStream.getTracks().forEach(track => track.stop());
     if (outStream) outStream.getTracks().forEach(track => track.stop());
+    micStream = null;
+    outStream = null;
     
-    if (audioContext) audioContext.close();
+    if (audioContext) { audioContext.close(); audioContext = null; }
     updateVADStatus(false);
 }
 
-// ⚠️ ให้หาบรรทัดฟังก์ชัน updateVADStatus(isActive) เดิม แล้วเติมโค้ดคุม WebRTC Track เข้าไปแบบนี้ครับ:
+// อัปเดต Status Badge และควบคุม outStream + แจ้ง WebRTC
 function updateVADStatus(isActive) {
     // ⚠️ สั่งเปิด/ปิดเสียงที่ "สตรีมร่างโคลน" (ตัวที่วิ่งไปหาเพื่อน) เท่านั้น!
     if (outStream && outStream.getAudioTracks().length > 0) {
