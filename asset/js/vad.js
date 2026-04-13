@@ -10,7 +10,7 @@ const VAD_CONFIG = {
     NOISE_FLOOR_MARGIN: 10,     // % เผื่อเหนือ noise floor ก่อนถือว่าเป็นเสียงพูด
     MIN_HOLD_MS:        300,    // Hold time ขั้นต่ำ (ป้องกันเสียงตัดกลางประโยค)
     HIGHPASS_FREQ:      100,    // Hz — ตัดความถี่ต่ำ (เสียงลม/เครื่องยนต์)
-    GAIN_VALUE:         1.2,    // boost เสียงพูดเล็กน้อย (1.0 = ไม่เปลี่ยน)
+    GAIN_VALUE:         1.4,    // boost เสียงพูดเล็กน้อย (1.0 = ไม่เปลี่ยน)
     FFT_SIZE:           256,
 };
 
