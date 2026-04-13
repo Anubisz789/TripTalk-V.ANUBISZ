@@ -235,10 +235,13 @@ function stopMainMic() {
     clearTimeout(holdTimeout);
     holdTimeout = null;
 
-    if (micStream)       { micStream.getTracks().forEach(t => t.stop());       micStream       = null; }
-    if (outStream)       { outStream.getTracks().forEach(t => t.stop());        outStream       = null; }
-    if (processedStream) { processedStream.getTracks().forEach(t => t.stop()); processedStream = null; }
-    if (audioContext)    { audioContext.close();                                audioContext     = null; }
+    // stop micStream และ outStream เท่านั้น
+    // processedStream เป็น MediaStreamDestination.stream — ปล่อยให้ GC จัดการ
+    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    if (outStream) { outStream.getTracks().forEach(t => t.stop()); outStream = null; }
+    processedStream = null;
+
+    if (audioContext) { audioContext.close(); audioContext = null; }
 
     updateVADStatus(false);
 }
