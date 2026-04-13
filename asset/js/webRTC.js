@@ -271,6 +271,7 @@ function joinVoiceRoom(roomId, nickname, localStream) {
     currentRoomId = roomId;
     roomHostId    = `clearway-room-${roomId}`;
     isLeaving     = false;
+    joinVoiceRoom._retryCount = 0; // reset retry counter
 
     updateConnectionStatus('🟡 กำลังเชื่อมต่อเซิร์ฟเวอร์...', 'muted');
 
@@ -325,6 +326,18 @@ function joinVoiceRoom(roomId, nickname, localStream) {
     // ── กรณี 2: ID ซ้ำ → กลายเป็น Guest ──
     peer.on('error', (err) => {
         if (err.type === 'unavailable-id') {
+            // ถ้า ID ยังถูก occupy — อาจเป็นเพราะเราเพิ่ง leave แล้วเข้าใหม่เร็วเกินไป
+            // ให้รอ 2 วินาทีแล้ว retry joinVoiceRoom ใหม่อีกครั้งก่อน
+            const retryCount = joinVoiceRoom._retryCount || 0;
+            if (retryCount < 2) {
+                joinVoiceRoom._retryCount = retryCount + 1;
+                updateConnectionStatus(`🟡 รอ ID ว่าง... (${retryCount + 1}/2)`, 'muted');
+                if (peer) { peer.destroy(); peer = null; }
+                setTimeout(() => joinVoiceRoom(roomId, nickname, localStream), 2000);
+                return;
+            }
+            // retry ครบแล้วยังไม่ได้ → ถือว่าห้องมีคนอื่นอยู่ → เข้าแบบ Guest
+            joinVoiceRoom._retryCount = 0;
             isHost = false;
             peer.destroy();
             peer = new Peer({ debug: 1, config: { iceServers: RTC_CONFIG.ICE_SERVERS } });
@@ -332,7 +345,7 @@ function joinVoiceRoom(roomId, nickname, localStream) {
             peer.on('open', () => {
                 updateConnectionStatus('🟡 กำลังเข้าห้อง...', 'muted');
                 startBitrateControl();
-                startNetworkStats();
+                // ไม่เรียก startNetworkStats ที่นี่ — จะเรียกตอน hostDataConnection.open แทน
 
                 // ✅ Data Channel ก่อน แล้วค่อยโทร Audio (แก้ Race Condition)
                 hostDataConnection = peer.connect(roomHostId, {
@@ -341,6 +354,7 @@ function joinVoiceRoom(roomId, nickname, localStream) {
 
                 hostDataConnection.on('open', () => {
                     updateConnectionStatus('🟢 เข้าร่วมทริปแล้ว', 'active');
+                    startNetworkStats(); // เริ่ม stats หลัง connection เปิดแล้วเท่านั้น
                     const call = peer.call(roomHostId, myStream);
                     handleActiveCall(call);
                 });
@@ -497,28 +511,32 @@ function broadcastMicStatus(isActive) {
 // ─────────────────────────────────────────────
 function leaveVoiceRoom() {
     isLeaving = true;
+    isHost    = false; // reset ก่อนเสมอ
     stopBitrateControl();
     stopNetworkStats();
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
 
-    if (isHost) {
-        Object.values(clientDataConnections).forEach(conn => {
-            if (conn.open) conn.send({ type: 'leave', peerId: peer.id });
-        });
-    } else if (hostDataConnection?.open) {
-        hostDataConnection.send({ type: 'leave' });
+    if (peer) {
+        // ส่งสัญญาณลาก่อน
+        if (Object.keys(clientDataConnections).length > 0) {
+            Object.values(clientDataConnections).forEach(conn => {
+                if (conn.open) conn.send({ type: 'leave', peerId: peer.id });
+            });
+        } else if (hostDataConnection?.open) {
+            hostDataConnection.send({ type: 'leave' });
+        }
     }
 
+    // รอให้ข้อมูลส่งออกไปก่อน แล้วค่อย destroy
     setTimeout(() => {
-        if (peer) peer.destroy();
-        peer                 = null;
+        if (peer) { peer.destroy(); peer = null; }
         roomState            = {};
         clientDataConnections= {};
         hostDataConnection   = null;
         connectedPeers       = {};
         remoteAudioContainer.innerHTML = '';
         updateUIList();
-    }, 100);
+    }, 300);
 }
 
 // ─────────────────────────────────────────────
