@@ -101,13 +101,16 @@ async function checkNetworkQuality(peerConnection) {
 
 // ขยับ bitrate ทีละ STEP (smoothing) แล้ว apply ไปยังทุก sender
 async function applyBitrateStep() {
-    // ตรวจ network quality จาก peer connection ตัวแรกที่มี
     const firstCall = Object.values(connectedPeers)[0];
     const pc = firstCall?.peerConnection;
     const unstable = await checkNetworkQuality(pc);
 
+    // ถ้าเน็ตไม่เสถียร → ลด bitrate ชั่วคราว
+    // ถ้าเน็ตดีขึ้น → กลับไปใช้ค่าตาม isSpeaking ตามปกติ
     if (unstable) {
-        targetBitrate = RTC_CONFIG.BITRATE_UNSTABLE;
+        targetBitrate = Math.min(targetBitrate, RTC_CONFIG.BITRATE_UNSTABLE);
+    } else {
+        targetBitrate = isSpeaking ? RTC_CONFIG.BITRATE_SPEAKING : RTC_CONFIG.BITRATE_SILENT;
     }
 
     // Smooth: ขยับทีละ STEP ไม่กระโดด
@@ -149,6 +152,117 @@ function stopBitrateControl() {
 }
 
 // ─────────────────────────────────────────────
+// NETWORK STATUS UI (Ping / Bitrate / Quality)
+// ─────────────────────────────────────────────
+let lastBytesSent = 0;
+let lastStatsTime = 0;
+
+function startNetworkStats() {
+    const panel = document.getElementById('networkStatusPanel');
+    if (panel) panel.style.display = 'flex'; // แสดง panel ทันที
+
+    if (statsInterval) clearInterval(statsInterval);
+    lastBytesSent = 0;
+    lastStatsTime = 0;
+
+    statsInterval = setInterval(async () => {
+        const pingEl      = document.getElementById('pingValue');
+        const bitrateEl   = document.getElementById('bitrateValue');
+        const qualityEl   = document.getElementById('qualityValue');
+        const qualityIcon = document.getElementById('qualityIcon');
+
+        // ดึง RTCPeerConnection จาก call ตัวแรกที่มี
+        const firstCall = Object.values(connectedPeers)[0];
+        const pc = firstCall?.peerConnection;
+
+        // ยังไม่มี peer → แสดง "--" ไว้ก่อน ไม่ต้อง return ออก
+        if (!pc) {
+            if (pingEl)    { pingEl.textContent    = '-- ms';   pingEl.className    = 'net-value'; }
+            if (bitrateEl) { bitrateEl.textContent = '-- kbps'; bitrateEl.className = 'net-value'; }
+            if (qualityEl) { qualityEl.textContent = '--';       qualityEl.className = 'net-value'; }
+            return;
+        }
+
+        let ping       = null;
+        let kbps       = null;
+        let packetLoss = 0;
+
+        try {
+            const now   = Date.now();
+            const stats = await pc.getStats();
+
+            for (const report of stats.values()) {
+                // Ping จาก candidate-pair ที่ active
+                if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                    if (report.currentRoundTripTime != null) {
+                        ping = Math.round(report.currentRoundTripTime * 1000);
+                    }
+                }
+                // Bitrate จาก bytesSent จริงๆ (ไม่ใช่ target)
+                if (report.type === 'outbound-rtp' && report.kind === 'audio') {
+                    if (report.bytesSent != null && lastStatsTime > 0) {
+                        const bytesDiff = report.bytesSent - lastBytesSent;
+                        const timeDiff  = (now - lastStatsTime) / 1000;
+                        kbps = timeDiff > 0 ? Math.round((bytesDiff * 8) / timeDiff / 1000) : null;
+                    }
+                    lastBytesSent = report.bytesSent ?? lastBytesSent;
+                }
+                // Packet loss จาก inbound-rtp
+                if (report.type === 'inbound-rtp' && report.kind === 'audio') {
+                    if (report.packetsLost != null && report.packetsReceived != null) {
+                        const total = report.packetsLost + report.packetsReceived;
+                        packetLoss  = total > 0 ? (report.packetsLost / total) * 100 : 0;
+                    }
+                }
+            }
+            lastStatsTime = now;
+        } catch(e) { return; }
+
+        // อัปเดต Ping
+        if (pingEl) {
+            pingEl.textContent = ping != null ? `${ping} ms` : '-- ms';
+            pingEl.className   = 'net-value ' + (
+                ping == null      ? '' :
+                ping < 100        ? 'good' :
+                ping < 250        ? 'warn' : 'bad'
+            );
+        }
+
+        // อัปเดต Bitrate
+        if (bitrateEl) {
+            bitrateEl.textContent = kbps != null ? `${kbps} kbps` : '-- kbps';
+            bitrateEl.className   = 'net-value ' + (isSpeaking ? 'good' : '');
+        }
+
+        // อัปเดต Quality โดยรวม
+        const isGood = ping != null && ping < 150 && packetLoss < 2;
+        const isWarn = ping != null && ping < 300 && packetLoss < 10;
+        if (qualityEl) {
+            qualityEl.textContent  = isGood ? 'GOOD' : isWarn ? 'WEAK' : 'BAD';
+            qualityEl.className    = 'net-value ' + (isGood ? 'good' : isWarn ? 'warn' : 'bad');
+        }
+        if (qualityIcon) {
+            qualityIcon.textContent = isGood ? '🟢' : isWarn ? '🟡' : '🔴';
+        }
+
+    }, 2000); // อัปเดตทุก 2 วินาที
+}
+
+function stopNetworkStats() {
+    if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
+    const panel = document.getElementById('networkStatusPanel');
+    if (panel) panel.style.display = 'none';
+    // reset ค่า
+    const ids = ['pingValue', 'bitrateValue', 'qualityValue'];
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.textContent = '--'; el.className = 'net-value'; }
+    });
+    const icon = document.getElementById('qualityIcon');
+    if (icon) icon.textContent = '🟢';
+}
+
+// ─────────────────────────────────────────────
 // JOIN VOICE ROOM
 // ─────────────────────────────────────────────
 function joinVoiceRoom(roomId, nickname, localStream) {
@@ -172,6 +286,7 @@ function joinVoiceRoom(roomId, nickname, localStream) {
         updateUIList();
         updateConnectionStatus('🟢 สร้างห้องแล้ว (หัวหน้าทริป)', 'active');
         startBitrateControl();
+        startNetworkStats();
 
         peer.on('connection', (conn) => {
             clientDataConnections[conn.peer] = conn;
@@ -217,6 +332,7 @@ function joinVoiceRoom(roomId, nickname, localStream) {
             peer.on('open', () => {
                 updateConnectionStatus('🟡 กำลังเข้าห้อง...', 'muted');
                 startBitrateControl();
+                startNetworkStats();
 
                 // ✅ Data Channel ก่อน แล้วค่อยโทร Audio (แก้ Race Condition)
                 hostDataConnection = peer.connect(roomHostId, {
@@ -338,6 +454,7 @@ function attemptReconnect() {
         reconnectTimer = null;
         if (isLeaving) return;
         stopBitrateControl();
+        stopNetworkStats();
         if (peer) { peer.destroy(); peer = null; }
         roomState            = {};
         clientDataConnections= {};
@@ -381,6 +498,7 @@ function broadcastMicStatus(isActive) {
 function leaveVoiceRoom() {
     isLeaving = true;
     stopBitrateControl();
+    stopNetworkStats();
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
 
     if (isHost) {
