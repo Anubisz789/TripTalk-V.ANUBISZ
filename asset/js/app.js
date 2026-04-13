@@ -106,18 +106,24 @@ startRideBtn.addEventListener('click', async () => {
         startRideBtn.querySelector('.btn-icon').innerText = "🛑";
         document.getElementById('testMicBtn').disabled = true;
 
-        // ⚠️ [เพิ่มลอจิก] ซ่อนช่องกรอกข้อมูล เปิดช่องแสดงรายชื่อ
         roomControlPanel.style.display = 'none';
         membersPanel.style.display = 'block';
 
         const activeStream = await startMainMic(); 
         
         if (activeStream) {
-            // ⚠️ [แก้ฟังก์ชัน] ส่งชื่อเล่น (nickname) เข้าไปใน WebRTC ด้วย
+            // ให้ webRTC.js จัดการ connectionStatus เอง ไม่ทับที่นี่
             window.ClearWayWebRTC.joinVoiceRoom(roomId, nickname, activeStream);
-            document.getElementById('connectionStatusBadge').classList.replace('disconnected', 'active');
-            document.getElementById('connectionStatusText').innerText = "🟢 พร้อมสื่อสาร";
             await requestWakeLock();
+        } else {
+            // mic ไม่ได้ → rollback UI
+            isRiding = false;
+            startRideBtn.classList.remove('stop');
+            startBtnText.innerText = "เริ่มสนทนา";
+            startRideBtn.querySelector('.btn-icon').innerText = "🏍️";
+            document.getElementById('testMicBtn').disabled = false;
+            roomControlPanel.style.display = 'block';
+            membersPanel.style.display = 'none';
         }
 
     } else {
@@ -127,15 +133,17 @@ startRideBtn.addEventListener('click', async () => {
         startRideBtn.querySelector('.btn-icon').innerText = "🏍️";
         document.getElementById('testMicBtn').disabled = false;
         
-        // ⚠️ [เพิ่มลอจิก] ซ่อนรายชื่อ เปิดช่องกรอกข้อมูลกลับมา
         roomControlPanel.style.display = 'block';
         membersPanel.style.display = 'none';
 
         stopMainMic();
         if (window.ClearWayWebRTC.leaveVoiceRoom) window.ClearWayWebRTC.leaveVoiceRoom();
         releaseWakeLock();
-        document.getElementById('connectionStatusBadge').className = 'status-badge disconnected';
-        document.getElementById('connectionStatusText').innerText = "🔴 สิ้นสุดทริป";
+        // รอให้ peer destroy เสร็จก่อนค่อย reset status
+        setTimeout(() => {
+            document.getElementById('connectionStatusBadge').className = 'status-badge disconnected';
+            document.getElementById('connectionStatusText').innerText = "🔴 สิ้นสุดทริป";
+        }, 200);
     }
 });
 
