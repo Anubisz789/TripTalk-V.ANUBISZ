@@ -41,6 +41,7 @@ let bitrateInterval      = null;
 // Network stats
 let statsInterval        = null;   // ← declare ชัดเจน ไม่ให้เป็น implicit global
 let lastBytesSent        = 0;
+let lastBytesReceived    = 0;
 let lastStatsTime        = 0;
 
 // ─────────────────────────────────────────────
@@ -144,9 +145,9 @@ function startNetworkStats() {
     const panel = document.getElementById('networkStatusPanel');
     if (panel) panel.style.display = 'flex';
 
-    // clear ก่อนเสมอ ป้องกัน double interval
     if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
     lastBytesSent = 0;
+    lastBytesReceived = 0;
     lastStatsTime = 0;
 
     statsInterval = setInterval(async () => {
@@ -155,61 +156,85 @@ function startNetworkStats() {
         const qualityEl   = document.getElementById('qualityValue');
         const qualityIcon = document.getElementById('qualityIcon');
 
-        const firstCall = Object.values(connectedPeers)[0];
-        const pc = firstCall?.peerConnection;
-
-        if (!pc) {
-            // ยังไม่มี peer connection — แสดง "--" ไว้ก่อน
-            if (pingEl)    pingEl.textContent    = '-- ms';
-            if (bitrateEl) bitrateEl.textContent = '-- kbps';
-            if (qualityEl) qualityEl.textContent = '--';
+        // ตรวจสอบ Peers ทั้งหมด
+        const peers = Object.values(connectedPeers);
+        if (peers.length === 0) {
+            if (pingEl) pingEl.textContent = '-- ms';
+            if (bitrateEl) bitrateEl.textContent = '0 kbps';
+            if (qualityEl) qualityEl.textContent = 'รอการเชื่อมต่อ';
             return;
         }
 
-        let ping = null, kbps = null, packetLoss = 0;
-
         try {
-            const now   = Date.now();
-            const stats = await pc.getStats();
+            const now = Date.now();
+            let totalBytes = 0;
+            let currentPing = 0;
+            let packetLoss = 0;
 
-            for (const r of stats.values()) {
-                if (r.type === 'candidate-pair' && r.state === 'succeeded' && r.currentRoundTripTime != null) {
-                    ping = Math.round(r.currentRoundTripTime * 1000);
-                }
-                if (r.type === 'outbound-rtp' && r.kind === 'audio' && r.bytesSent != null) {
-                    if (lastStatsTime > 0) {
-                        const timeDiff = (now - lastStatsTime) / 1000;
-                        kbps = timeDiff > 0 ? Math.round((r.bytesSent - lastBytesSent) * 8 / timeDiff / 1000) : null;
+            // วนลูปเก็บสถิติจากทุก Connection เพื่อหาค่ารวมของเครื่องเราเอง
+            for (const call of peers) {
+                const pc = call.peerConnection;
+                if (!pc) continue;
+                
+                const stats = await pc.getStats();
+                stats.forEach(r => {
+                    // หา Ping จาก Connection ที่สำเร็จ
+                    if (currentPing === 0 && r.type === 'candidate-pair' && r.state === 'succeeded' && r.currentRoundTripTime != null) {
+                        currentPing = Math.round(r.currentRoundTripTime * 1000);
                     }
-                    lastBytesSent = r.bytesSent;
-                }
-                if (r.type === 'inbound-rtp' && r.kind === 'audio') {
-                    const total = (r.packetsLost ?? 0) + (r.packetsReceived ?? 0);
-                    packetLoss  = total > 0 ? (r.packetsLost / total) * 100 : 0;
+                    // รวม Bytes ทั้งหมด (เข้า+ออก) ที่ผ่านเครื่องเรา
+                    if (r.type === 'inbound-rtp' || r.type === 'outbound-rtp') {
+                        totalBytes += (r.bytesReceived || 0) + (r.bytesSent || 0);
+                    }
+                    // ดูค่า Packet Loss ของเสียงที่รับมา
+                    if (r.type === 'inbound-rtp' && r.kind === 'audio') {
+                        const total = (r.packetsLost ?? 0) + (r.packetsReceived ?? 0);
+                        if (total > 0) packetLoss = (r.packetsLost / total) * 100;
+                    }
+                });
+            }
+
+            // คำนวณ Bitrate (kbps)
+            let kbps = 0;
+            if (lastStatsTime > 0) {
+                const timeDiff = (now - lastStatsTime) / 1000;
+                kbps = Math.round(((totalBytes - (lastBytesSent + lastBytesReceived)) * 8) / timeDiff / 1000);
+            }
+            
+            lastBytesSent = totalBytes; 
+            lastBytesReceived = 0; 
+            lastStatsTime = now;
+
+            // แสดงผล Ping และสีสถานะ
+            if (pingEl) {
+                pingEl.textContent = `${currentPing} ms`;
+                pingEl.className = 'net-value ' + (currentPing < 150 ? 'good' : currentPing < 300 ? 'warn' : 'bad');
+            }
+
+            // แสดงผล Bitrate (ขยับตามการใช้งานเน็ตจริงของเครื่อง)
+            if (bitrateEl) {
+                bitrateEl.textContent = `${kbps} kbps`;
+            }
+
+            // แสดงผล Status ภาษาไทย
+            const isGood = currentPing > 0 && currentPing < 150 && packetLoss < 2;
+            const isWarn = currentPing < 300 && packetLoss < 10;
+
+            if (qualityEl) {
+                if (isGood) {
+                    qualityEl.textContent = 'ดี';
+                    qualityEl.className = 'net-value good';
+                } else if (isWarn) {
+                    qualityEl.textContent = 'เตือน';
+                    qualityEl.className = 'net-value warn';
+                } else {
+                    qualityEl.textContent = 'แย่';
+                    qualityEl.className = 'net-value bad';
                 }
             }
-            lastStatsTime = now;
-        } catch(e) { return; }
+            if (qualityIcon) qualityIcon.textContent = isGood ? '🟢' : isWarn ? '🟡' : '🔴';
 
-        // Ping
-        if (pingEl) {
-            pingEl.textContent = ping != null ? `${ping} ms` : '-- ms';
-            pingEl.className   = 'net-value' + (ping == null ? '' : ping < 100 ? ' good' : ping < 250 ? ' warn' : ' bad');
-        }
-        // Bitrate
-        if (bitrateEl) {
-            bitrateEl.textContent = kbps != null ? `${kbps} kbps` : '-- kbps';
-            bitrateEl.className   = 'net-value' + (isSpeaking ? ' good' : '');
-        }
-        // Quality
-        const good = ping != null && ping < 150 && packetLoss < 2;
-        const warn = ping != null && ping < 300 && packetLoss < 10;
-        if (qualityEl) {
-            qualityEl.textContent = good ? 'GOOD' : warn ? 'WEAK' : 'BAD';
-            qualityEl.className   = 'net-value' + (good ? ' good' : warn ? ' warn' : ' bad');
-        }
-        if (qualityIcon) qualityIcon.textContent = good ? '🟢' : warn ? '🟡' : '🔴';
-
+        } catch (e) { console.error("Stats Error:", e); }
     }, 2000);
 }
 
