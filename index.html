@@ -5,6 +5,40 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>TripTalk | Connect the Ride. Clear the Way.</title>
     <link rel="stylesheet" href="asset/css/style.css">
+    <style>
+        .network-status-panel {
+            display: flex;
+            justify-content: space-around;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+            padding: 10px 8px;
+            margin: 8px 0 12px;
+            gap: 4px;
+        }
+        .net-stat {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            flex: 1;
+        }
+        .net-icon { font-size: 16px; }
+        .net-label {
+            font-size: 10px;
+            color: rgba(255,255,255,0.4);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .net-value {
+            font-size: 13px;
+            font-weight: 600;
+            color: rgba(255,255,255,0.85);
+        }
+        .net-value.good { color: #4caf50; }
+        .net-value.warn { color: #ff9800; }
+        .net-value.bad  { color: #f44336; }
+    </style>
     <link rel="manifest" href="manifest.json">
     <meta name="description" content="Connect the Ride. Clear the Way.  เชื่อมต่อทุกการขับขี่ ชัดเจนทุกเส้นทาง">
     <meta property="og:type" content="website">
@@ -33,6 +67,25 @@
                 </div>
                 <div class="status-badge muted" id="micStatusBadge">
                     <span id="micStatusText">🎙️ ไมค์ปิด (รอเสียง)</span>
+                </div>
+            </div>
+
+            <!-- Mini Network Status — โผล่เมื่อเชื่อมต่อแล้ว -->
+            <div class="network-status-panel" id="networkStatusPanel" style="display:none;">
+                <div class="net-stat">
+                    <span class="net-icon">📶</span>
+                    <span class="net-label">Ping</span>
+                    <span class="net-value" id="pingValue">-- ms</span>
+                </div>
+                <div class="net-stat">
+                    <span class="net-icon">🎧</span>
+                    <span class="net-label">Bitrate</span>
+                    <span class="net-value" id="bitrateValue">-- kbps</span>
+                </div>
+                <div class="net-stat">
+                    <span class="net-icon" id="qualityIcon">🟢</span>
+                    <span class="net-label">Status</span>
+                    <span class="net-value" id="qualityValue">--</span>
                 </div>
             </div>
 
