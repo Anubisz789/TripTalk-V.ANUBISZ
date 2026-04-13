@@ -1,66 +1,83 @@
 // asset/js/vad.js
+// ปรับปรุงระบบ VAD + Audio Processing สำหรับการขี่มอเตอร์ไซค์
 
-// ตัวแปรระบบเสียง
+// ─────────────────────────────────────────────
+// CONFIG — ปรับค่าได้ทั้งหมดที่นี่
+// ─────────────────────────────────────────────
+const VAD_CONFIG = {
+    SMOOTHING_ALPHA:    0.15,   // Exponential smoothing (0=ช้า, 1=เร็ว)
+    NOISE_FLOOR_ALPHA:  0.002,  // ความเร็วในการเรียนรู้ noise floor (ช้าๆ)
+    NOISE_FLOOR_MARGIN: 10,     // % เผื่อเหนือ noise floor ก่อนถือว่าเป็นเสียงพูด
+    MIN_HOLD_MS:        300,    // Hold time ขั้นต่ำ (ป้องกันเสียงตัดกลางประโยค)
+    HIGHPASS_FREQ:      100,    // Hz — ตัดความถี่ต่ำ (เสียงลม/เครื่องยนต์)
+    GAIN_VALUE:         1.4,    // boost เสียงพูดเล็กน้อย (1.0 = ไม่เปลี่ยน)
+    FFT_SIZE:           256,
+};
+
+// ─────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────
 let audioContext;
 let analyser;
 let micStream;
 let outStream;
+let processedStream;   // stream หลังผ่าน filter+gain → ส่งให้ WebRTC
 let animationId;
-let isTesting = false;    // สำหรับปุ่ม "ทดสอบระดับเสียง" เท่านั้น
-let isMainMicOn = false;  // สำหรับทริปจริง (แยกออกจาก isTesting)
+let isTesting    = false;
+let isMainMicOn  = false;
+let isVADActive  = false;
+let holdTimeout  = null;
 
-// สถานะการทำงานของ VAD (Voice Activity Detection)
-let isVADActive = false;
-let holdTimeout;
+// VAD smoothing & noise floor
+let smoothedVolume  = 0;
+let noiseFloor      = 0;
 
-// ดึง Elements จาก DOM (อ้างอิงตาม ID ใน index.html)
-const testMicBtn = document.getElementById('testMicBtn');
-const volumeMeterFill = document.getElementById('volumeMeterFill');
-const currentVolumeText = document.getElementById('currentVolumeText');
-const thresholdSlider = document.getElementById('thresholdSlider');
-const holdTimeSlider = document.getElementById('holdTimeSlider');
-const micStatusBadge = document.getElementById('micStatusBadge');
-const micStatusText = document.getElementById('micStatusText');
+// ─────────────────────────────────────────────
+// DOM ELEMENTS
+// ─────────────────────────────────────────────
+const testMicBtn       = document.getElementById('testMicBtn');
+const volumeMeterFill  = document.getElementById('volumeMeterFill');
+const currentVolumeText= document.getElementById('currentVolumeText');
+const thresholdSlider  = document.getElementById('thresholdSlider');
+const holdTimeSlider   = document.getElementById('holdTimeSlider');
+const micStatusBadge   = document.getElementById('micStatusBadge');
+const micStatusText    = document.getElementById('micStatusText');
 
-// ผูก Event ให้ปุ่ม Test Mic
+// ─────────────────────────────────────────────
+// TEST MIC (ปุ่มทดสอบ — ไม่เชื่อม WebRTC)
+// ─────────────────────────────────────────────
 testMicBtn.addEventListener('click', async () => {
     if (isTesting) {
         stopTestMic();
-    } else if (!isMainMicOn) { // ป้องกันกดทดสอบระหว่างทริปจริง
+    } else if (!isMainMicOn) {
         await startTestMic();
     }
 });
 
 async function startTestMic() {
     try {
-        // 1. ขอสิทธิ์ใช้งานไมโครโฟน และเปิดระบบตัดเสียงรบกวนพื้นฐานของ Browser
         micStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                noiseSuppression: true,
-                echoCancellation: true,
-                autoGainControl: true
-            }
+            audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true }
         });
 
-        // 2. สร้าง AudioContext เพื่อประมวลผลคลื่นเสียง
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         analyser = audioContext.createAnalyser();
-        analyser.fftSize = 256;
+        analyser.fftSize = VAD_CONFIG.FFT_SIZE;
 
+        // Test mic ไม่ใส่ filter เพื่อให้เห็นเสียงจริงๆ ตอนปรับ threshold
         const source = audioContext.createMediaStreamSource(micStream);
         source.connect(analyser);
 
-        // เปลี่ยนสถานะ UI ของปุ่ม
         isTesting = true;
+        smoothedVolume = 0;
+        noiseFloor = 0;
         testMicBtn.innerText = '⏹️ หยุดทดสอบ';
         testMicBtn.classList.add('active');
-
-        // 3. เริ่มลูปอ่านค่าความดัง
         checkVolume();
 
     } catch (err) {
         console.error('ไม่สามารถเข้าถึงไมโครโฟนได้:', err);
-        alert('กรุณาอนุญาตการเข้าถึงไมโครโฟนบนเบราว์เซอร์เพื่อใช้งาน ClearWay');
+        alert('กรุณาอนุญาตการเข้าถึงไมโครโฟน');
     }
 }
 
@@ -71,7 +88,7 @@ function stopTestMic() {
     clearTimeout(holdTimeout);
     holdTimeout = null;
 
-    if (micStream) { micStream.getTracks().forEach(track => track.stop()); micStream = null; }
+    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
     if (audioContext) { audioContext.close(); audioContext = null; }
 
     testMicBtn.innerHTML = '🎙️ ทดสอบระดับเสียง';
@@ -81,44 +98,85 @@ function stopTestMic() {
     updateVADStatus(false);
 }
 
+// ─────────────────────────────────────────────
+// AUDIO PROCESSING PIPELINE
+// Mic → HighPassFilter → Gain → analyser + processedStream
+// ─────────────────────────────────────────────
+function buildAudioPipeline(ctx, source) {
+    // 1. High-pass filter — ตัดเสียงลม/เครื่องยนต์ที่ความถี่ต่ำ
+    const hpf = ctx.createBiquadFilter();
+    hpf.type = 'highpass';
+    hpf.frequency.value = VAD_CONFIG.HIGHPASS_FREQ;
+    hpf.Q.value = 0.7; // gentle slope
+
+    // 2. Gain — boost เสียงพูดเล็กน้อย
+    const gainNode = ctx.createGain();
+    gainNode.gain.value = VAD_CONFIG.GAIN_VALUE;
+
+    // 3. Analyser สำหรับวัด volume
+    const analyserNode = ctx.createAnalyser();
+    analyserNode.fftSize = VAD_CONFIG.FFT_SIZE;
+
+    // 4. MediaStreamDestination — ส่งออกเป็น stream ใหม่ที่ผ่าน filter แล้ว
+    const dest = ctx.createMediaStreamDestination();
+
+    // เชื่อม chain
+    source.connect(hpf);
+    hpf.connect(gainNode);
+    gainNode.connect(analyserNode);
+    gainNode.connect(dest);
+
+    return { analyserNode, processedStream: dest.stream };
+}
+
+// ─────────────────────────────────────────────
+// VAD VOLUME LOOP
+// ─────────────────────────────────────────────
 function checkVolume() {
     if (!isTesting && !isMainMicOn) return;
 
-    // ดึงค่าความถี่เสียงปัจจุบัน
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     analyser.getByteFrequencyData(dataArray);
 
-    // หาค่าเฉลี่ยความดัง
-    let sum = 0;
+    // คำนวณ RMS แทน average — แม่นยำกว่าสำหรับเสียงพูด
+    let sumSq = 0;
     for (let i = 0; i < dataArray.length; i++) {
-        sum += dataArray[i];
+        sumSq += dataArray[i] * dataArray[i];
     }
-    let average = sum / dataArray.length;
+    const rms = Math.sqrt(sumSq / dataArray.length);
+    const rawPercent = Math.min(100, Math.round((rms / 255) * 100 * 2));
 
-    // แปลงค่าให้เป็นเปอร์เซ็นต์ (0-100%) 
-    // หมายเหตุ: คูณ 2 เข้าไปเพื่อให้แถบสีตอบสนองกับเสียงพูดปกติได้ไวขึ้น ไม่ต้องตะโกน
-    let volumePercent = Math.min(100, Math.round((average / 255) * 100 * 2)); 
+    // Exponential smoothing — ป้องกันค่ากระโดด
+    smoothedVolume = VAD_CONFIG.SMOOTHING_ALPHA * rawPercent
+                   + (1 - VAD_CONFIG.SMOOTHING_ALPHA) * smoothedVolume;
+    const volumePercent = Math.round(smoothedVolume);
 
-    // อัปเดต UI แถบสีวิ่ง
+    // อัปเดต Noise Floor อย่างช้าๆ (เรียนรู้เสียงพื้นหลัง)
+    // อัปเดตเฉพาะตอน VAD ไม่ active เพื่อไม่ให้เสียงพูดรบกวน noise floor
+    if (!isVADActive) {
+        noiseFloor = VAD_CONFIG.NOISE_FLOOR_ALPHA * volumePercent
+                   + (1 - VAD_CONFIG.NOISE_FLOOR_ALPHA) * noiseFloor;
+    }
+
+    // อัปเดต UI
     volumeMeterFill.style.width = `${volumePercent}%`;
     currentVolumeText.innerText = `ระดับเสียง: ${volumePercent}%`;
 
-    // --- ส่วนลอจิกตัดเสียงลม (Noise Gate) ---
-    const threshold = parseInt(thresholdSlider.value, 10);
-    const holdTime = parseInt(holdTimeSlider.value, 10);
+    // ─── VAD Logic ───
+    const userThreshold  = parseInt(thresholdSlider.value, 10);
+    const holdTime       = Math.max(parseInt(holdTimeSlider.value, 10), VAD_CONFIG.MIN_HOLD_MS);
 
-    if (volumePercent >= threshold) {
-        // ถ้าระดับเสียง ทะลุเส้น Threshold ขาว -> สั่งเปิดไมค์
+    // threshold จริง = ค่าที่ user ตั้ง หรือ noise floor + margin (เอาค่าสูงกว่า)
+    const effectiveThreshold = Math.max(userThreshold, noiseFloor + VAD_CONFIG.NOISE_FLOOR_MARGIN);
+
+    if (volumePercent >= effectiveThreshold) {
         if (!isVADActive) {
             isVADActive = true;
             updateVADStatus(true);
         }
-        // รีเซ็ตตัวหน่วงเวลาทุกครั้งที่ยังมีเสียงดังอยู่
         clearTimeout(holdTimeout);
         holdTimeout = null;
-        
     } else {
-        // ถ้าระดับเสียง ตกต่ำกว่าเส้น Threshold -> เริ่มนับถอยหลังเตรียมปิดไมค์
         if (isVADActive && !holdTimeout) {
             holdTimeout = setTimeout(() => {
                 isVADActive = false;
@@ -128,78 +186,82 @@ function checkVolume() {
         }
     }
 
-    // วนลูปอ่านค่าเฟรมถัดไป
     animationId = requestAnimationFrame(checkVolume);
 }
 
-
-
-
+// ─────────────────────────────────────────────
+// MAIN MIC (ใช้จริงตอนออกทริป)
+// ─────────────────────────────────────────────
 async function startMainMic() {
-    if (isTesting) stopTestMic(); // เคลียร์ของเก่าก่อนเผื่อค้าง
-    if (isMainMicOn) return null; // ป้องกันเรียกซ้ำ
+    if (isTesting) stopTestMic();
+    if (isMainMicOn) return null;
 
     try {
         micStream = await navigator.mediaDevices.getUserMedia({
             audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true }
         });
-        
-        outStream = micStream.clone();
-        outStream.getAudioTracks()[0].enabled = false; 
 
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         if (audioContext.state === 'suspended') await audioContext.resume();
-        
-        analyser = audioContext.createAnalyser();
-        analyser.fftSize = 256;
-        
+
         const source = audioContext.createMediaStreamSource(micStream);
-        source.connect(analyser);
 
-        isMainMicOn = true;  // ใช้ flag แยกสำหรับทริปจริง
-        checkVolume(); 
+        // ใส่ Audio Processing Pipeline
+        const pipeline = buildAudioPipeline(audioContext, source);
+        analyser       = pipeline.analyserNode;
+        processedStream = pipeline.processedStream;
 
-        return outStream; 
+        // Clone processed stream เพื่อส่ง WebRTC — ปิดไว้ก่อน รอ VAD สั่งเปิด
+        outStream = processedStream.clone();
+        outStream.getAudioTracks()[0].enabled = false;
+
+        smoothedVolume = 0;
+        noiseFloor     = 0;
+        isMainMicOn    = true;
+        checkVolume();
+
+        return outStream;
+
     } catch (err) {
-        console.error("Mic error:", err);
+        console.error('Mic error:', err);
         return null;
     }
 }
 
 function stopMainMic() {
-    isMainMicOn = false;
-    isVADActive = false;
+    isMainMicOn  = false;
+    isVADActive  = false;
     cancelAnimationFrame(animationId);
     clearTimeout(holdTimeout);
     holdTimeout = null;
-    
-    if (micStream) micStream.getTracks().forEach(track => track.stop());
-    if (outStream) outStream.getTracks().forEach(track => track.stop());
-    micStream = null;
-    outStream = null;
-    
-    if (audioContext) { audioContext.close(); audioContext = null; }
+
+    if (micStream)       { micStream.getTracks().forEach(t => t.stop());       micStream       = null; }
+    if (outStream)       { outStream.getTracks().forEach(t => t.stop());        outStream       = null; }
+    if (processedStream) { processedStream.getTracks().forEach(t => t.stop()); processedStream = null; }
+    if (audioContext)    { audioContext.close();                                audioContext     = null; }
+
     updateVADStatus(false);
 }
 
-// อัปเดต Status Badge และควบคุม outStream + แจ้ง WebRTC
+// ─────────────────────────────────────────────
+// VAD STATUS — อัปเดต UI + ควบคุม track + แจ้ง WebRTC
+// ─────────────────────────────────────────────
 function updateVADStatus(isActive) {
-    // ⚠️ สั่งเปิด/ปิดเสียงที่ "สตรีมร่างโคลน" (ตัวที่วิ่งไปหาเพื่อน) เท่านั้น!
+    // เปิด/ปิด track ที่ส่งไปหาเพื่อน
     if (outStream && outStream.getAudioTracks().length > 0) {
         outStream.getAudioTracks()[0].enabled = isActive;
     }
 
+    // แจ้ง WebRTC เพื่ออัปเดต bitrate + UI รายชื่อ
     if (window.ClearWayWebRTC && window.ClearWayWebRTC.broadcastMicStatus) {
         window.ClearWayWebRTC.broadcastMicStatus(isActive);
     }
-    
+
     if (isActive) {
-        micStatusBadge.classList.remove('muted');
-        micStatusBadge.classList.add('active');
+        micStatusBadge.classList.replace('muted', 'active');
         micStatusText.innerText = '🎙️ ไมค์เปิด (กำลังส่งเสียง)';
     } else {
-        micStatusBadge.classList.remove('active');
-        micStatusBadge.classList.add('muted');
+        micStatusBadge.classList.replace('active', 'muted');
         micStatusText.innerText = '🎙️ ไมค์ปิด (รอเสียง)';
     }
 }
