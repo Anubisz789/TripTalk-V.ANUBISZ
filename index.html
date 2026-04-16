@@ -3,10 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>TripTalk | Connect the Ride. Clear the Way.</title>
+    <title>ANBTripTalk | Connect the Ride. Clear the Way.</title>
     <link rel="stylesheet" href="asset/css/style.css">
     <style>
-        /* Network Status Panel (เดิม) */
         .network-status-panel {
             display: flex;
             justify-content: space-around;
@@ -39,88 +38,9 @@
         .net-value.good { color: #4caf50; }
         .net-value.warn { color: #ff9800; }
         .net-value.bad  { color: #f44336; }
-
-        /* [ADDED] Preset System Styles */
-        .preset-section {
-            background: rgba(255,255,255,0.04);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 12px;
-            padding: 12px;
-            margin-bottom: 14px;
-        }
-        .preset-section-title {
-            font-size: 11px;
-            color: rgba(255,255,255,0.4);
-            text-transform: uppercase;
-            letter-spacing: 0.6px;
-            margin-bottom: 8px;
-        }
-        .preset-row {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-        /* [ADDED] Dropdown รองรับ gloves — สูงอย่างน้อย 48px */
-        .preset-select {
-            flex: 1;
-            padding: 12px 10px;
-            border-radius: 10px;
-            border: 1px solid rgba(255,255,255,0.2);
-            background: rgba(255,255,255,0.08);
-            color: #fff;
-            font-size: 14px;
-            min-height: 48px;
-            -webkit-appearance: none;
-            appearance: none;
-            cursor: pointer;
-        }
-        .preset-select option, .preset-select optgroup {
-            background: #1a1a1a;
-            color: #fff;
-        }
-        .preset-custom-row {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            margin-top: 8px;
-        }
-        .preset-name-input {
-            flex: 1;
-            padding: 12px 10px;
-            border-radius: 10px;
-            border: 1px solid rgba(255,255,255,0.2);
-            background: rgba(255,255,255,0.08);
-            color: #fff;
-            font-size: 14px;
-            min-height: 48px;
-        }
-        .preset-name-input::placeholder { color: rgba(255,255,255,0.3); }
-        /* [ADDED] ปุ่ม preset — ใหญ่พอสำหรับถุงมือ */
-        .btn-preset-save {
-            padding: 12px 16px;
-            border-radius: 10px;
-            border: none;
-            background: rgba(76,175,80,0.25);
-            color: #4caf50;
-            font-size: 20px;
-            min-height: 48px;
-            min-width: 48px;
-            cursor: pointer;
-        }
-        .btn-preset-delete {
-            padding: 12px 16px;
-            border-radius: 10px;
-            border: none;
-            background: rgba(244,67,54,0.2);
-            color: #f44336;
-            font-size: 20px;
-            min-height: 48px;
-            min-width: 48px;
-            cursor: pointer;
-        }
     </style>
     <link rel="manifest" href="manifest.json">
-    <meta name="description" content="Connect the Ride. Clear the Way. เชื่อมต่อทุกการขับขี่ ชัดเจนทุกเส้นทาง">
+    <meta name="description" content="Connect the Ride. Clear the Way.  เชื่อมต่อทุกการขับขี่ ชัดเจนทุกเส้นทาง">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://triptalk.pages.dev/">
     <meta property="og:title" content="Triptalk - Connect the Ride. Clear the Way.">
@@ -132,7 +52,7 @@
     <meta name=apple-mobile-web-app-status-bar-style content=black-translucent>
     <meta name="apple-mobile-web-app-title" content="TripTalk">
     <link rel="apple-touch-icon" href="/asset/img/icon-192.png">
-</head>
+    </head>
 <body>
     <div class="app-container">
         <header>
@@ -150,7 +70,7 @@
                 </div>
             </div>
 
-            <!-- Network Status Panel (เดิม — โผล่เมื่อเชื่อมต่อแล้ว) -->
+            <!-- Mini Network Status — โผล่เมื่อเชื่อมต่อแล้ว -->
             <div class="network-status-panel" id="networkStatusPanel" style="display:none;">
                 <div class="net-stat">
                     <span class="net-icon">📶</span>
@@ -183,7 +103,8 @@
 
                 <div class="members-panel" id="membersPanel" style="display: none;">
                     <h3>👥 สมาชิกในทริป</h3>
-                    <ul id="memberList" class="member-list"></ul>
+                    <ul id="memberList" class="member-list">
+                        </ul>
                 </div>
 
                 <button id="startRideBtn" class="btn-primary">
@@ -193,95 +114,50 @@
             </div>
 
             <div class="settings-panel">
-                <div class="settings-header" id="vadToggle">
-                    <h3>⚙️ ตั้งค่าตัดเสียงลม (VAD)</h3>
-                    <span class="toggle-icon" id="vadIcon">▼</span>
-                </div>
-
-                <div class="settings-content" id="vadContent">
-
-                    <!-- [ADDED] PRESET SELECTOR — ส่วนบนสุดของ settings -->
-                    <div class="preset-section">
-                        <div class="preset-section-title">🎛️ โปรไฟล์การขับขี่</div>
-                        <div class="preset-row">
-                            <!-- dropdown จะถูก populate โดย app.js -->
-                            <select id="presetSelector" class="preset-select">
-                                <option value="touring">🛣️ ทริประยะไกล</option>
-                            </select>
-                        </div>
-                        <!-- Save / Delete custom preset -->
-                        <div class="preset-custom-row">
-                            <input type="text" id="customPresetName"
-                                   class="preset-name-input"
-                                   placeholder="ชื่อ preset ใหม่...">
-                            <button id="savePresetBtn" class="btn-preset-save" title="บันทึก preset">💾</button>
-                            <button id="deletePresetBtn" class="btn-preset-delete" title="ลบ preset">🗑️</button>
-                        </div>
-                    </div>
-                    <!-- END PRESET SELECTOR -->
-
-                    <div class="test-mic-section">
-                        <button id="testMicBtn" class="btn-outline">🎙️ ทดสอบระดับเสียง</button>
-                        <div class="meter-wrapper">
-                            <div class="meter-container">
-                                <div id="volumeMeterFill" class="meter-fill" style="width: 0%;"></div>
-                                <div id="thresholdMarker" class="threshold-marker" style="left: 50%;"></div>
-                            </div>
-                            <div class="meter-labels">
-                                <span class="hint">เงียบ</span>
-                                <span id="currentVolumeText" class="current-volume-text">ระดับเสียง: 0%</span>
-                                <span class="hint">ดังสุด</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <hr class="divider">
-
-                    <!-- Threshold slider (เดิม) -->
-                    <div class="setting-item">
-                        <div class="setting-label">
-                            <label for="thresholdSlider">ความไวไมค์ (Threshold)</label>
-                            <span class="setting-value" id="thresholdVal">50%</span>
-                        </div>
-                        <input type="range" id="thresholdSlider" min="0" max="100" value="50">
-                        <p class="hint">เลื่อนให้เส้นขาวหนีเสียงรบกวนพื้นหลัง</p>
-                    </div>
-
-                    <!-- Hold Time slider (เดิม) -->
-                    <div class="setting-item">
-                        <div class="setting-label">
-                            <label for="holdTimeSlider">หน่วงเวลาปิดไมค์ (Hold)</label>
-                            <span class="setting-value" id="holdTimeVal">1.5s</span>
-                        </div>
-                        <input type="range" id="holdTimeSlider" min="500" max="3000" step="100" value="1500">
-                        <p class="hint">ป้องกันไมค์ตัดเวลาเว้นวรรคหายใจ</p>
-                    </div>
-
-                    <!-- [ADDED] Wind Filter slider (highpass Hz) -->
-                    <div class="setting-item">
-                        <div class="setting-label">
-                            <label for="highpassSlider">ตัดเสียงลม (Wind Filter)</label>
-                            <span class="setting-value" id="highpassVal">100 Hz</span>
-                        </div>
-                        <input type="range" id="highpassSlider" min="60" max="200" step="10" value="100">
-                        <p class="hint">ค่าสูง = ตัดเสียงรบกวนมากขึ้น (เสียงลม/เครื่องยนต์)</p>
-                    </div>
-
-                    <!-- [ADDED] Voice Boost slider (gain x10) -->
-                    <div class="setting-item">
-                        <div class="setting-label">
-                            <label for="gainSlider">เพิ่มเสียงพูด (Voice Boost)</label>
-                            <span class="setting-value" id="gainVal">1.4x</span>
-                        </div>
-                        <input type="range" id="gainSlider" min="10" max="18" step="1" value="14">
-                        <p class="hint">เพิ่มความดังเสียงพูด (ไม่ควรเกิน 1.8x)</p>
-                    </div>
-
-                </div>
-            </div>
-        </main>
+    <div class="settings-header" id="vadToggle">
+        <h3>⚙️ ตั้งค่าตัดเสียงลม (VAD)</h3>
+        <span class="toggle-icon" id="vadIcon">▼</span>
     </div>
 
+    <div class="settings-content" id="vadContent">
+        <div class="test-mic-section">
+            <button id="testMicBtn" class="btn-outline">🎙️ ทดสอบระดับเสียง</button>
+            <div class="meter-wrapper">
+                <div class="meter-container">
+                    <div id="volumeMeterFill" class="meter-fill" style="width: 0%;"></div>
+                    <div id="thresholdMarker" class="threshold-marker" style="left: 50%;"></div>
+                </div>
+                <div class="meter-labels">
+                    <span class="hint">เงียบ</span>
+                    <span id="currentVolumeText" class="current-volume-text">ระดับเสียง: 0%</span>
+                    <span class="hint">ดังสุด</span>
+                </div>
+            </div>
+        </div>
+
+        <hr class="divider">
+
+        <div class="setting-item">
+            <div class="setting-label">
+                <label for="thresholdSlider">ความไวไมค์ (Threshold)</label>
+                <span class="setting-value" id="thresholdVal">50%</span>
+            </div>
+            <input type="range" id="thresholdSlider" min="0" max="100" value="50">
+            <p class="hint">เลื่อนให้เส้นขาวหนีเสียงรบกวนพื้นหลัง</p>
+        </div>
+
+        <div class="setting-item">
+            <div class="setting-label">
+                <label for="holdTimeSlider">หน่วงเวลาปิดไมค์ (Hold)</label>
+                <span class="setting-value" id="holdTimeVal">1.5s</span>
+            </div>
+            <input type="range" id="holdTimeSlider" min="500" max="3000" step="100" value="1500">
+            <p class="hint">ป้องกันไมค์ตัดเวลาเว้นวรรคหายใจ</p>
+        </div>
+    </div>
+</div>
+        </main>
+    </div>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="asset/js/webRTC.js"></script>
     <script src="asset/js/vad.js"></script>
