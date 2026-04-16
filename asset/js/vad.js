@@ -230,7 +230,7 @@ async function startMainMic() {
         analyser       = pipeline.analyserNode;
 
         outTrack = pipeline.destStream.getAudioTracks()[0];
-        outTrack.enabled = false;
+        // [FIXED] removed track.enabled control
 
         const outStream = new MediaStream([outTrack]);
 
@@ -275,7 +275,17 @@ function stopMainMic() {
 // VAD STATUS
 // ─────────────────────────────────────────────
 function updateVADStatus(isActive) {
-    if (outTrack) outTrack.enabled = isActive;
+    // [FIXED] use gain instead of track.enabled to avoid WebRTC audio drop
+    if (gainNodeRef && audioContext) {
+        const now = audioContext.currentTime;
+        if (isActive) {
+            gainNodeRef.gain.setTargetAtTime(VAD_CONFIG.GAIN_VALUE, now, 0.02);
+        } else {
+            gainNodeRef.gain.setTargetAtTime(0.0001, now, 0.02);
+        }
+    }
+
+    if (outTrack) // [FIXED] removed track.enabled control
 
     if (window.ClearWayWebRTC?.broadcastMicStatus) {
         window.ClearWayWebRTC.broadcastMicStatus(isActive);
