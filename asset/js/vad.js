@@ -2,18 +2,19 @@
 
 // ─────────────────────────────────────────────
 // CONFIG — ปรับค่าได้ทั้งหมดที่นี่
-// (properties สามารถ mutate ได้ตอน runtime เช่น VAD_CONFIG.HIGHPASS_FREQ = 150)
 // ─────────────────────────────────────────────
 const VAD_CONFIG = {
-    SMOOTHING_ALPHA:      0.2,
-    NOISE_FLOOR_ALPHA:    0.003,
-    NOISE_FLOOR_MARGIN:   8,
-    MIN_HOLD_MS:          300,
-    HIGHPASS_FREQ:        100,    // Hz — ตัดเสียงลม/เครื่องยนต์ (ปรับได้ผ่าน preset)
-    GAIN_VALUE:           1.4,    // boost เสียงพูด (ปรับได้ผ่าน preset)
-    FFT_SIZE:             512,
-    VAD_INTERVAL_MS:      40,
-    UI_INTERVAL_MS:       100,
+    SMOOTHING_ALPHA:      0.2,    // Exponential smoothing (0=ช้า, 1=เร็ว)
+    NOISE_FLOOR_ALPHA:    0.003,  // ความเร็วเรียนรู้ noise floor (ช้าๆ)
+    NOISE_FLOOR_MARGIN:   8,      // % เผื่อเหนือ noise floor
+    MIN_HOLD_MS:          300,    // Hold time ขั้นต่ำ — ป้องกันเสียงตัดกลางประโยค
+    // [MODIFIED] ลด HIGHPASS จาก 120 → 100 Hz เพื่อเก็บ fundamental voice freq (ผู้ชาย ~85Hz)
+    HIGHPASS_FREQ:        100,    // Hz — ตัดเสียงลม/เครื่องยนต์ ยังเก็บเสียงพูดไว้
+    GAIN_VALUE:           1.4,    // boost เสียงพูด (1.0 = ไม่เปลี่ยน, max 1.8)
+    FFT_SIZE:             512,    // frequency resolution — สมดุล CPU vs ความแม่นยำ
+    VAD_INTERVAL_MS:      40,     // วัด VAD ทุก 40ms (25fps) — ประหยัด CPU
+    UI_INTERVAL_MS:       100,    // อัปเดต UI ทุก 100ms — ลด DOM write
+    // [ADDED] ต้องเจอเสียงดังต่อกัน N frames ก่อนถือว่ากำลังพูด — ป้องกัน false trigger จากเสียงลมกระโชก
     VOICE_CONFIRM_FRAMES: 2,
 };
 
@@ -23,7 +24,7 @@ const VAD_CONFIG = {
 let audioContext      = null;
 let analyser          = null;
 let micStream         = null;
-let outTrack          = null;
+let outTrack          = null;       // AudioTrack ส่งให้ WebRTC โดยตรง (ไม่ clone)
 let vadIntervalId     = null;
 let uiIntervalId      = null;
 let isTesting         = false;
@@ -33,10 +34,8 @@ let holdTimeout       = null;
 let smoothedVolume    = 0;
 let noiseFloor        = 0;
 let lastVolumePercent = 0;
+// [ADDED] นับ frames ที่เสียงเกิน threshold ต่อเนื่อง — ป้องกัน false trigger
 let voiceFrameCount   = 0;
-// [ADDED] เก็บ reference ของ audio nodes เพื่ออัปเดต config แบบ live (ไม่ต้อง restart)
-let hpfNode           = null;
-let gainNodeRef       = null;
 
 // ─────────────────────────────────────────────
 // DOM ELEMENTS
@@ -72,7 +71,7 @@ async function startTestMic() {
         isTesting         = true;
         smoothedVolume    = 0;
         noiseFloor        = 0;
-        voiceFrameCount   = 0;
+        voiceFrameCount   = 0; // [ADDED] reset counter
         testMicBtn.innerText = '⏹️ หยุดทดสอบ';
         testMicBtn.classList.add('active');
 
@@ -85,23 +84,22 @@ async function startTestMic() {
 }
 
 function stopTestMic() {
-    isTesting       = false;
-    isVADActive     = false;
-    voiceFrameCount = 0;
+    isTesting   = false;
+    isVADActive = false;
+    voiceFrameCount = 0; // [ADDED] reset counter
     stopVADLoop();
     stopUILoop();
     clearTimeout(holdTimeout);
     holdTimeout = null;
 
     if (micStream)    { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    // [FIXED] close audioContext แล้ว null analyser ด้วย — ป้องกัน stale reference
     if (audioContext) { audioContext.close(); audioContext = null; }
-    analyser    = null;
-    // [ADDED] clear node refs เมื่อ stop
-    hpfNode     = null;
-    gainNodeRef = null;
+    analyser = null;
 
     testMicBtn.innerHTML = '🎙️ ทดสอบระดับเสียง';
     testMicBtn.classList.remove('active');
+    // [FIXED] reset lastVolumePercent ด้วย ป้องกัน UI ค้างค่าเก่า
     lastVolumePercent = 0;
     volumeMeterFill.style.width = '0%';
     currentVolumeText.innerText = 'ระดับเสียง: 0%';
@@ -113,10 +111,11 @@ function stopTestMic() {
 // Mic → HighPassFilter → Gain → Analyser + MediaStreamDestination
 // ─────────────────────────────────────────────
 function buildAudioPipeline(ctx, source) {
+    // [MODIFIED] HPF freq ตาม CONFIG (100Hz) — ตัดเสียงลม/เครื่องยนต์ ยังเก็บเสียงพูด
     const hpf = ctx.createBiquadFilter();
     hpf.type            = 'highpass';
     hpf.frequency.value = VAD_CONFIG.HIGHPASS_FREQ;
-    hpf.Q.value         = 0.7;
+    hpf.Q.value         = 0.7; // gentle slope ไม่ตัดหักเกินไป
 
     const gainNode = ctx.createGain();
     gainNode.gain.value = VAD_CONFIG.GAIN_VALUE;
@@ -126,20 +125,17 @@ function buildAudioPipeline(ctx, source) {
 
     const dest = ctx.createMediaStreamDestination();
 
+    // Chain: source → hpf → gain → analyser → dest
     source.connect(hpf);
     hpf.connect(gainNode);
     gainNode.connect(analyserNode);
     gainNode.connect(dest);
 
-    // [ADDED] เก็บ reference สำหรับ live update ผ่าน applyPresetToAudio()
-    hpfNode     = hpf;
-    gainNodeRef = gainNode;
-
     return { analyserNode, destStream: dest.stream };
 }
 
 // ─────────────────────────────────────────────
-// VAD LOOP
+// VAD LOOP — setInterval แทน requestAnimationFrame ประหยัด CPU
 // ─────────────────────────────────────────────
 function startVADLoop() {
     if (vadIntervalId) return;
@@ -156,15 +152,18 @@ function processVAD() {
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     analyser.getByteFrequencyData(dataArray);
 
+    // RMS — แม่นกว่า average สำหรับเสียงพูด
     let sumSq = 0;
     for (let i = 0; i < dataArray.length; i++) sumSq += dataArray[i] * dataArray[i];
     const rms        = Math.sqrt(sumSq / dataArray.length);
     const rawPercent = Math.min(100, Math.round((rms / 255) * 100 * 2));
 
+    // Exponential smoothing — ป้องกันค่ากระโดด
     smoothedVolume    = VAD_CONFIG.SMOOTHING_ALPHA * rawPercent
                       + (1 - VAD_CONFIG.SMOOTHING_ALPHA) * smoothedVolume;
     lastVolumePercent = Math.round(smoothedVolume);
 
+    // Noise floor — เรียนรู้เสียงพื้นหลังเฉพาะตอนเงียบ
     if (!isVADActive) {
         noiseFloor = VAD_CONFIG.NOISE_FLOOR_ALPHA * lastVolumePercent
                    + (1 - VAD_CONFIG.NOISE_FLOOR_ALPHA) * noiseFloor;
@@ -175,19 +174,22 @@ function processVAD() {
     const effectiveThreshold = Math.max(userThreshold, noiseFloor + VAD_CONFIG.NOISE_FLOOR_MARGIN);
 
     if (lastVolumePercent >= effectiveThreshold) {
+        // [MODIFIED] ใช้ frame counter แทนการ trigger ทันที — ป้องกัน false trigger จากเสียงลมกระโชก
         voiceFrameCount++;
         if (!isVADActive && voiceFrameCount >= VAD_CONFIG.VOICE_CONFIRM_FRAMES) {
             isVADActive = true;
             updateVADStatus(true);
         }
+        // reset hold timeout ทุกครั้งที่ยังมีเสียงอยู่
         clearTimeout(holdTimeout);
         holdTimeout = null;
     } else {
+        // [FIXED] reset voiceFrameCount เมื่อเสียงต่ำกว่า threshold — ไม่สะสมข้ามช่วงเงียบ
         voiceFrameCount = 0;
         if (isVADActive && !holdTimeout) {
             holdTimeout = setTimeout(() => {
                 isVADActive     = false;
-                voiceFrameCount = 0;
+                voiceFrameCount = 0; // [ADDED] ensure reset
                 updateVADStatus(false);
                 holdTimeout = null;
             }, holdTime);
@@ -196,7 +198,7 @@ function processVAD() {
 }
 
 // ─────────────────────────────────────────────
-// UI LOOP
+// UI LOOP — แยกออกมา อัปเดตช้ากว่า VAD (ประหยัด DOM write)
 // ─────────────────────────────────────────────
 function startUILoop() {
     if (uiIntervalId) return;
@@ -229,14 +231,17 @@ async function startMainMic() {
         const pipeline = buildAudioPipeline(audioContext, source);
         analyser       = pipeline.analyserNode;
 
+        // ✅ ใช้ track จาก destStream โดยตรง ไม่ clone
+        // clone() สร้าง track ใหม่ที่ไม่เชื่อมกับ source — enable/disable ไม่กระทบเสียงที่ส่งจริง
         outTrack = pipeline.destStream.getAudioTracks()[0];
-        // [FIXED] removed track.enabled control
+        outTrack.enabled = false; // ปิดไว้ก่อน รอ VAD สั่งเปิด
 
+        // สร้าง MediaStream จาก outTrack ส่งให้ WebRTC
         const outStream = new MediaStream([outTrack]);
 
         smoothedVolume  = 0;
         noiseFloor      = 0;
-        voiceFrameCount = 0;
+        voiceFrameCount = 0; // [ADDED] reset counter ตอนเริ่มทริปใหม่
         isMainMicOn     = true;
 
         startVADLoop();
@@ -253,40 +258,32 @@ async function startMainMic() {
 function stopMainMic() {
     isMainMicOn     = false;
     isVADActive     = false;
-    voiceFrameCount = 0;
+    voiceFrameCount = 0; // [ADDED] reset counter
     stopVADLoop();
     stopUILoop();
     clearTimeout(holdTimeout);
     holdTimeout = null;
 
     if (micStream)    { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    // [FIXED] null audioContext และ analyser หลัง close — ป้องกัน stale reference
     if (audioContext) { audioContext.close(); audioContext = null; }
-    analyser          = null;
-    outTrack          = null;
-    // [ADDED] clear node refs เมื่อ stop
-    hpfNode           = null;
-    gainNodeRef       = null;
+    analyser = null;
+    outTrack = null;
 
+    // [FIXED] reset lastVolumePercent ป้องกัน UI loop อัปเดตค่าเก่าหลัง stop
     lastVolumePercent = 0;
+
     updateVADStatus(false);
 }
 
 // ─────────────────────────────────────────────
-// VAD STATUS
+// VAD STATUS — อัปเดต UI + ควบคุม track + แจ้ง WebRTC
 // ─────────────────────────────────────────────
 function updateVADStatus(isActive) {
-    // [FIXED] use gain instead of track.enabled to avoid WebRTC audio drop
-    if (gainNodeRef && audioContext) {
-        const now = audioContext.currentTime;
-        if (isActive) {
-            gainNodeRef.gain.setTargetAtTime(VAD_CONFIG.GAIN_VALUE, now, 0.02);
-        } else {
-            gainNodeRef.gain.setTargetAtTime(0.0001, now, 0.02);
-        }
-    }
+    // เปิด/ปิด track ที่ส่งให้ WebRTC โดยตรง
+    if (outTrack) outTrack.enabled = isActive;
 
-    if (outTrack) // [FIXED] removed track.enabled control
-
+    // แจ้ง WebRTC
     if (window.ClearWayWebRTC?.broadcastMicStatus) {
         window.ClearWayWebRTC.broadcastMicStatus(isActive);
     }
@@ -297,24 +294,5 @@ function updateVADStatus(isActive) {
     } else {
         micStatusBadge.classList.replace('active', 'muted');
         micStatusText.innerText = '🎙️ ไมค์ปิด (รอเสียง)';
-    }
-}
-
-// ─────────────────────────────────────────────
-// [ADDED] PRESET AUDIO APPLY
-// เรียกจาก app.js เมื่อผู้ใช้เลือก preset
-// อัปเดต config ทันที และ apply ไป live audio nodes ถ้ากำลัง run อยู่
-// ─────────────────────────────────────────────
-function applyPresetToAudio(highpassHz, gain) {
-    // อัปเดต config — ใช้ครั้งต่อไปที่ buildAudioPipeline ถูกเรียก
-    VAD_CONFIG.HIGHPASS_FREQ = highpassHz;
-    VAD_CONFIG.GAIN_VALUE    = gain;
-
-    // [ADDED] อัปเดต live nodes ทันทีถ้ากำลัง run อยู่ — ไม่ต้อง restart mic
-    if (audioContext && hpfNode) {
-        hpfNode.frequency.setTargetAtTime(highpassHz, audioContext.currentTime, 0.05);
-    }
-    if (audioContext && gainNodeRef) {
-        gainNodeRef.gain.setTargetAtTime(gain, audioContext.currentTime, 0.05);
     }
 }
