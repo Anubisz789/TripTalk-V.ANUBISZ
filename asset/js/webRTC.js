@@ -1,7 +1,7 @@
-// asset/js/webRTC.js - เวอร์ชันแก้ไขสำหรับ Mobile Support
+// asset/js/webRTC.js
 
 // ─────────────────────────────────────────────
-// CONFIG - เพิ่ม TURN Servers สำหรับ Mobile
+// CONFIG
 // ─────────────────────────────────────────────
 const RTC_CONFIG = {
     BITRATE_SPEAKING:    32000,
@@ -10,88 +10,54 @@ const RTC_CONFIG = {
     BITRATE_STEP:        2000,
     BITRATE_INTERVAL_MS: 500,
     RECONNECT_DELAY_MS:  3000,
-    MAX_HOST_CLAIM_TRIES: 3,  // ← ใหม่: ลอง claim host สูงสุด 3 ครั้ง
-    
-    // PeerServer - Self-host หรือ custom (แทน public peerjs.com)
-    PEERSERVER: {
-        host: window.location.hostname === 'localhost' ? '0.peerjs.com' : 'peerjs.yourdomain.com',  // ← เปลี่ยนเป็น server ของคุณ
-        port: 443,
-        path: '/peerjs',
-        secure: true,  // HTTPS สำคัญสำหรับ mobile!
-        config: {
-            iceServers: [
-                // Google STUN (เดิม)
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                
-                // TURN สำหรับ Mobile/NAT/Firewall (Metered.ca free tier)
-                { 
-                    urls: 'turn:global.relay.metered.ca:80',
-                    username: '87a3a559dd4cff69c4e5eae5',
-                    credential: 'O2WMwfz+PFmqp4kV'
-                },
-                { 
-                    urls: 'turn:global.relay.metered.ca:80?transport=tcp',
-                    username: '87a3a559dd4cff69c4e5eae5',
-                    credential: 'O2WMwfz+PFmqp4kV'
-                },
-                { 
-                    urls: 'turn:global.relay.metered.ca:443',
-                    username: '87a3a559dd4cff69c4e5eae5',
-                    credential: 'O2WMwfz+PFmqp4kV'
-                },
-                { 
-                    urls: 'turns:global.relay.metered.ca:443?transport=tcp',
-                    username: '87a3a559dd4cff69c4e5eae5',
-                    credential: 'O2WMwfz+PFmqp4kV'
-                }
-            ],
-            iceTransportPolicy: 'all',  // relay+host
-            bundlePolicy: 'max-bundle'
-        }
-    }
+    ICE_SERVERS: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+    ],
 };
 
 // ─────────────────────────────────────────────
-// STATE - เพิ่มตัวแปรใหม่
+// STATE — ทุกตัวแปร declare ครบที่นี่
 // ─────────────────────────────────────────────
-let peer = null;
-let connectedPeers = {};
-let myStream = null;
-let myNickname = '';
-let isHost = false;
-let roomHostId = '';
-let currentRoomId = '';
-let isLeaving = false;
-let reconnectTimer = null;
-let hostDataConnection = null;
-let clientDataConnections = {};
-let roomState = {};
+let peer                 = null;
+let connectedPeers       = {};
+let myStream             = null;
+let myNickname           = '';
+let isHost               = false;
+let roomHostId           = '';
+let currentRoomId        = '';
+let isLeaving            = false;
+let reconnectTimer       = null;
+let hostDataConnection   = null;
+let clientDataConnections= {};
+let roomState            = {};
 
-// Bitrate + Stats (เดิม)
-let isSpeaking = false;
-let currentBitrate = RTC_CONFIG.BITRATE_SILENT;
-let targetBitrate = RTC_CONFIG.BITRATE_SILENT;
-let bitrateInterval = null;
-let statsInterval = null;
-let lastBytesSent = 0;
-let lastStatsTime = 0;
+// Bitrate
+let isSpeaking           = false;
+let currentBitrate       = RTC_CONFIG.BITRATE_SILENT;
+let targetBitrate        = RTC_CONFIG.BITRATE_SILENT;
+let bitrateInterval      = null;
 
-// ← ใหม่: Host claim retry
-let hostClaimAttempts = 0;
+// Network stats
+let statsInterval        = null;   // ← declare ชัดเจน ไม่ให้เป็น implicit global
+let lastBytesSent        = 0;
+let lastStatsTime        = 0;
 
 // ─────────────────────────────────────────────
-// AUDIO + BEEP (เดิม)
+// AUDIO CONTAINER
 // ─────────────────────────────────────────────
 const remoteAudioContainer = document.createElement('div');
 remoteAudioContainer.id = 'remoteAudios';
 remoteAudioContainer.style.display = 'none';
 document.body.appendChild(remoteAudioContainer);
 
+// ─────────────────────────────────────────────
+// BEEP
+// ─────────────────────────────────────────────
 function playBeep(type) {
     try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = ctx.createOscillator();
+        const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+        const osc  = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.connect(gain);
         gain.connect(ctx.destination);
@@ -111,16 +77,18 @@ function playBeep(type) {
 }
 
 // ─────────────────────────────────────────────
-// BITRATE + STATS (เดิม - ไม่เปลี่ยน)
+// BITRATE CONTROL
 // ─────────────────────────────────────────────
 function onSpeakingChanged(speaking) {
-    isSpeaking = speaking;
+    isSpeaking    = speaking;
     targetBitrate = speaking ? RTC_CONFIG.BITRATE_SPEAKING : RTC_CONFIG.BITRATE_SILENT;
 }
 
 async function applyBitrateStep() {
     const firstCall = Object.values(connectedPeers)[0];
     const pc = firstCall?.peerConnection;
+
+    // ตรวจ RTT
     let unstable = false;
     if (pc) {
         try {
@@ -133,11 +101,13 @@ async function applyBitrateStep() {
             }
         } catch(e) {}
     }
+
     targetBitrate = unstable
         ? Math.min(isSpeaking ? RTC_CONFIG.BITRATE_SPEAKING : RTC_CONFIG.BITRATE_SILENT, RTC_CONFIG.BITRATE_UNSTABLE)
         : (isSpeaking ? RTC_CONFIG.BITRATE_SPEAKING : RTC_CONFIG.BITRATE_SILENT);
 
     if (currentBitrate === targetBitrate) return;
+
     currentBitrate = currentBitrate < targetBitrate
         ? Math.min(currentBitrate + RTC_CONFIG.BITRATE_STEP, targetBitrate)
         : Math.max(currentBitrate - RTC_CONFIG.BITRATE_STEP, targetBitrate);
@@ -163,33 +133,125 @@ function startBitrateControl() {
 function stopBitrateControl() {
     if (bitrateInterval) { clearInterval(bitrateInterval); bitrateInterval = null; }
     currentBitrate = RTC_CONFIG.BITRATE_SILENT;
-    targetBitrate = RTC_CONFIG.BITRATE_SILENT;
-    isSpeaking = false;
+    targetBitrate  = RTC_CONFIG.BITRATE_SILENT;
+    isSpeaking     = false;
 }
 
-// Network Stats (เดิม)
-function startNetworkStats() { /* ... เดิม ... */ }
-function stopNetworkStats() { /* ... เดิม ... */ }
+// ─────────────────────────────────────────────
+// NETWORK STATS UI
+// ─────────────────────────────────────────────
+function startNetworkStats() {
+    const panel = document.getElementById('networkStatusPanel');
+    if (panel) panel.style.display = 'flex';
+
+    // clear ก่อนเสมอ ป้องกัน double interval
+    if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
+    lastBytesSent = 0;
+    lastStatsTime = 0;
+
+    statsInterval = setInterval(async () => {
+        const pingEl      = document.getElementById('pingValue');
+        const bitrateEl   = document.getElementById('bitrateValue');
+        const qualityEl   = document.getElementById('qualityValue');
+        const qualityIcon = document.getElementById('qualityIcon');
+
+        const firstCall = Object.values(connectedPeers)[0];
+        const pc = firstCall?.peerConnection;
+
+        if (!pc) {
+            // ยังไม่มี peer connection — แสดง "--" ไว้ก่อน
+            if (pingEl)    pingEl.textContent    = '-- ms';
+            if (bitrateEl) bitrateEl.textContent = '-- kbps';
+            if (qualityEl) qualityEl.textContent = '--';
+            return;
+        }
+
+        let ping = null, kbps = null, packetLoss = 0;
+
+        try {
+            const now   = Date.now();
+            const stats = await pc.getStats();
+
+            for (const r of stats.values()) {
+                if (r.type === 'candidate-pair' && r.state === 'succeeded' && r.currentRoundTripTime != null) {
+                    ping = Math.round(r.currentRoundTripTime * 1000);
+                }
+                if (r.type === 'outbound-rtp' && r.kind === 'audio' && r.bytesSent != null) {
+                    if (lastStatsTime > 0) {
+                        const timeDiff = (now - lastStatsTime) / 1000;
+                        kbps = timeDiff > 0 ? Math.round((r.bytesSent - lastBytesSent) * 8 / timeDiff / 1000) : null;
+                    }
+                    lastBytesSent = r.bytesSent;
+                }
+                if (r.type === 'inbound-rtp' && r.kind === 'audio') {
+                    const total = (r.packetsLost ?? 0) + (r.packetsReceived ?? 0);
+                    packetLoss  = total > 0 ? (r.packetsLost / total) * 100 : 0;
+                }
+            }
+            lastStatsTime = now;
+        } catch(e) { return; }
+
+        // Ping
+        if (pingEl) {
+            pingEl.textContent = ping != null ? `${ping} ms` : '-- ms';
+            pingEl.className   = 'net-value' + (ping == null ? '' : ping < 100 ? ' good' : ping < 250 ? ' warn' : ' bad');
+        }
+        // Bitrate
+        if (bitrateEl) {
+            bitrateEl.textContent = kbps != null ? `${kbps} kbps` : '-- kbps';
+            bitrateEl.className   = 'net-value' + (isSpeaking ? ' good' : '');
+        }
+        // Quality
+        const good = ping != null && ping < 150 && packetLoss < 2;
+        const warn = ping != null && ping < 300 && packetLoss < 10;
+        if (qualityEl) {
+            qualityEl.textContent = good ? 'GOOD' : warn ? 'WEAK' : 'BAD';
+            qualityEl.className   = 'net-value' + (good ? ' good' : warn ? ' warn' : ' bad');
+        }
+        if (qualityIcon) qualityIcon.textContent = good ? '🟢' : warn ? '🟡' : '🔴';
+
+    }, 2000);
+}
+
+function stopNetworkStats() {
+    if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
+    const panel = document.getElementById('networkStatusPanel');
+    if (panel) panel.style.display = 'none';
+    ['pingValue','bitrateValue','qualityValue'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.textContent = '--'; el.className = 'net-value'; }
+    });
+    const icon = document.getElementById('qualityIcon');
+    if (icon) icon.textContent = '🟢';
+}
 
 // ─────────────────────────────────────────────
-// CALL + PEER LEAVE (เดิม)
+// CALL HANDLING
 // ─────────────────────────────────────────────
 function handleActiveCall(call) {
     connectedPeers[call.peer] = call;
+
     call.on('stream', (remoteStream) => {
         let audio = document.getElementById(`audio-${call.peer}`);
         if (!audio) {
-            audio = document.createElement('audio');
-            audio.id = `audio-${call.peer}`;
+            audio          = document.createElement('audio');
+            audio.id       = `audio-${call.peer}`;
             audio.autoplay = true;
-            audio.playsInline = true;  // ← สำคัญสำหรับ iOS
             remoteAudioContainer.appendChild(audio);
         }
         if (audio.srcObject !== remoteStream) audio.srcObject = remoteStream;
     });
-    call.on('error', (err) => console.error('Call error:', err));
+
+    // ⚠️ ไม่ trigger reconnect จาก call.on('close') เพราะ PeerJS ส่ง close
+    // ระหว่าง ICE negotiation ปกติด้วย — ให้ใช้ peer.on('disconnected') แทน
+    call.on('error', (err) => {
+        console.error('Call error:', err);
+    });
 }
 
+// ─────────────────────────────────────────────
+// PEER LEAVE
+// ─────────────────────────────────────────────
 function handlePeerLeave(peerId) {
     if (clientDataConnections[peerId]) delete clientDataConnections[peerId];
     if (connectedPeers[peerId]) {
@@ -204,7 +266,7 @@ function handlePeerLeave(peerId) {
 }
 
 // ─────────────────────────────────────────────
-// RECONNECT (เดิม)
+// RECONNECT
 // ─────────────────────────────────────────────
 function attemptReconnect() {
     if (isLeaving || reconnectTimer) return;
@@ -215,181 +277,173 @@ function attemptReconnect() {
         stopBitrateControl();
         stopNetworkStats();
         if (peer) { peer.destroy(); peer = null; }
-        roomState = {};
+        roomState             = {};
         clientDataConnections = {};
-        hostDataConnection = null;
-        connectedPeers = {};
+        hostDataConnection    = null;
+        connectedPeers        = {};
         remoteAudioContainer.innerHTML = '';
         joinVoiceRoom(currentRoomId, myNickname, myStream);
     }, RTC_CONFIG.RECONNECT_DELAY_MS);
 }
 
 // ─────────────────────────────────────────────
-// JOIN VOICE ROOM - แก้ไขหลักทั้งหมด!
+// JOIN VOICE ROOM
 // ─────────────────────────────────────────────
 function joinVoiceRoom(roomId, nickname, localStream) {
-    myStream = localStream;
-    myNickname = nickname;
+    myStream      = localStream;
+    myNickname    = nickname;
     currentRoomId = roomId;
-    roomHostId = `clearway-room-${roomId}`;
-    isLeaving = false;
-    isHost = false;
-    hostClaimAttempts = 0;  // ← Reset
+    roomHostId    = `clearway-room-${roomId}`;
+    isLeaving     = false;
+    isHost        = false;
 
     updateConnectionStatus('🟡 กำลังเชื่อมต่อเซิร์ฟเวอร์...', 'muted');
-    console.log('🚀 Joining room:', roomId, 'UserAgent:', navigator.userAgent);  // Debug
 
-    // ฟังก์ชัน helper สร้าง Peer
-    function createPeer(id = null, isHostAttempt = false) {
-        const peerConfig = {
-            debug: 2,  // ← เพิ่ม log สำหรับ debug
-            config: RTC_CONFIG.PEERSERVER.config,
-            ...(id ? { id } : {}),
-            host: RTC_CONFIG.PEERSERVER.host,
-            port: RTC_CONFIG.PEERSERVER.port,
-            path: RTC_CONFIG.PEERSERVER.path,
-            secure: RTC_CONFIG.PEERSERVER.secure
-        };
+    // ลอง join เป็น Host ก่อน
+    peer = new Peer(roomHostId, {
+        debug: 0,
+        config: { iceServers: RTC_CONFIG.ICE_SERVERS }
+    });
 
-        console.log('🔧 Creating Peer:', id || 'random', peerConfig);
-        return new Peer(id, peerConfig);
-    }
+    // ── กรณี 1: ได้เป็น Host (ID ว่างอยู่) ──
+    peer.on('open', (id) => {
+        isHost        = true;
+        roomState[id] = { nickname: myNickname, role: 'Host', isTalking: false };
+        updateUIList();
+        updateConnectionStatus('🟢 สร้างห้องแล้ว (หัวหน้าทริป)', 'active');
+        startBitrateControl();
+        startNetworkStats();
 
-    // ลองเป็น Host (retry 3 ครั้ง)
-    function tryClaimHost() {
-        hostClaimAttempts++;
-        console.log(`👑 Host claim attempt ${hostClaimAttempts}/${RTC_CONFIG.MAX_HOST_CLAIM_TRIES}`);
-        
-        peer = createPeer(roomHostId, true);
+        // รับ Data Channel จาก Guest
+        peer.on('connection', (conn) => {
+            clientDataConnections[conn.peer] = conn;
 
-        peer.on('open', (id) => {
-            console.log('🟢 SUCCESS: Became Host!', id);
-            isHost = true;
-            roomState[id] = { nickname: myNickname, role: 'Host', isTalking: false };
-            updateUIList();
-            updateConnectionStatus('🟢 สร้างห้องแล้ว (หัวหน้าทริป)', 'active');
-            startBitrateControl();
-            startNetworkStats();
+            conn.on('open', () => {
+                const guestName = conn.metadata?.nickname || 'Unknown';
+                roomState[conn.peer] = { nickname: guestName, role: 'Member', isTalking: false };
 
-            // Host handlers (เดิม)
-            peer.on('connection', (conn) => {
-                clientDataConnections[conn.peer] = conn;
-                conn.on('open', () => {
-                    const guestName = conn.metadata?.nickname || 'Unknown';
-                    roomState[conn.peer] = { nickname: guestName, role: 'Member', isTalking: false };
-                    const audioPeers = Object.keys(roomState).filter(p => p !== conn.peer && p !== id);
-                    conn.send({ type: 'welcome', roomState: roomState, peersToCall: audioPeers });
+                // บอก Guest ว่ามีใครอยู่บ้าง
+                const audioPeers = Object.keys(roomState).filter(p => p !== conn.peer && p !== id);
+                conn.send({ type: 'welcome', roomState: roomState, peersToCall: audioPeers });
+
+                broadcastRoomState();
+                updateUIList();
+                playBeep('join');
+            });
+
+            conn.on('data', (data) => {
+                if (data.type === 'mic-status') {
+                    if (roomState[conn.peer]) roomState[conn.peer].isTalking = data.isActive;
                     broadcastRoomState();
                     updateUIList();
-                    playBeep('join');
-                });
-                conn.on('data', (data) => {
-                    if (data.type === 'mic-status') {
-                        if (roomState[conn.peer]) roomState[conn.peer].isTalking = data.isActive;
-                        broadcastRoomState();
-                        updateUIList();
-                    } else if (data.type === 'leave') {
-                        handlePeerLeave(conn.peer);
-                    }
-                });
-                conn.on('close', () => handlePeerLeave(conn.peer));
+                } else if (data.type === 'leave') {
+                    handlePeerLeave(conn.peer);
+                }
             });
 
-            peer.on('call', (call) => {
-                call.answer(myStream);
-                handleActiveCall(call);
-            });
+            conn.on('close', () => handlePeerLeave(conn.peer));
         });
 
-        peer.on('disconnected', () => {
-            if (!isLeaving) {
-                console.log('🔌 Peer disconnected, reconnecting...');
-                peer.reconnect();
-            }
-        });
-
-        // ← สำคัญ: Handle unavailable-id + retry logic
-        peer.on('error', (err) => {
-            console.error('❌ Peer ERROR:', err.type, err.message);
-            
-            if (err.type === 'unavailable-id' && hostClaimAttempts < RTC_CONFIG.MAX_HOST_CLAIM_TRIES) {
-                console.log('🔄 Host ID taken, retrying...');
-                if (peer) peer.destroy();
-                setTimeout(tryClaimHost, 1000 * hostClaimAttempts);  // Backoff
-                return;
-            } else if (err.type === 'unavailable-id') {
-                console.log('🏠 Host taken, fallback to Guest mode');
-                fallbackToGuest();
-                return;
-            }
-
-            // Other errors
-            updateConnectionStatus(`🔴 Error: ${err.type}`, 'disconnected');
-            if (!isLeaving) setTimeout(attemptReconnect, 2000);
-        });
-    }
-
-    // Fallback เป็น Guest (ปรับปรุง)
-    function fallbackToGuest() {
-        isHost = false;
-        if (peer) { peer.destroy(); peer = null; }
-
-        peer = createPeer();  // Random ID
-
-        peer.on('open', (guestId) => {
-            console.log('👤 Guest ID:', guestId);
-            updateConnectionStatus('🟡 กำลังเข้าห้อง...', 'muted');
-            startBitrateControl();
-
-            // DataChannel ก่อนเสมอ (แก้ race condition)
-            hostDataConnection = peer.connect(roomHostId, {
-                metadata: { nickname: myNickname },
-                reliable: true  // ← สำคัญสำหรับ mobile
-            });
-
-            hostDataConnection.on('open', () => {
-                console.log('📡 DataChannel to Host OK');
-                updateConnectionStatus('🟢 เข้าร่วมทริปแล้ว', 'active');
-                startNetworkStats();
-                const call = peer.call(roomHostId, myStream);
-                handleActiveCall(call);
-            });
-
-            hostDataConnection.on('open', () => { /* ... */ });
-            hostDataConnection.on('data', (data) => { /* เดิม */ });
-            hostDataConnection.on('close', () => {
-                if (!isLeaving) attemptReconnect();
-            });
-            hostDataConnection.on('error', (err) => {
-                console.error('DataChannel ERROR:', err);
-                updateConnectionStatus('🔴 DataChannel fail', 'disconnected');
-            });
-        });
-
+        // รับสาย Audio จาก Guest
         peer.on('call', (call) => {
             call.answer(myStream);
             handleActiveCall(call);
         });
+    });
 
-        peer.on('disconnected', () => {
-            if (!isLeaving) {
-                updateConnectionStatus('🟡 สัญญาณหลุด กำลังเชื่อมใหม่...', 'muted');
-                peer.reconnect();
-            }
-        });
+    // ── กรณี 2: ID ถูกใช้อยู่ → เป็น Guest ──
+    peer.on('error', (err) => {
+        if (err.type === 'unavailable-id') {
+            // ID ถูกใช้อยู่ = ห้องมีคนสร้างไว้แล้ว → เข้าแบบ Guest
+            isHost = false;
+            if (peer) { peer.destroy(); peer = null; }
 
-        peer.on('error', (err) => {
-            console.error('Guest peer error:', err);
-            if (!isLeaving && err.type !== 'peer-unavailable') attemptReconnect();
-        });
-    }
+            peer = new Peer({
+                debug: 0,
+                config: { iceServers: RTC_CONFIG.ICE_SERVERS }
+            });
 
-    // Start!
-    tryClaimHost();
+            peer.on('open', (guestId) => {
+                updateConnectionStatus('🟡 กำลังเข้าห้อง...', 'muted');
+                startBitrateControl();
+
+                // ── ต่อ Data Channel ก่อน (แก้ Race Condition) ──
+                hostDataConnection = peer.connect(roomHostId, {
+                    metadata: { nickname: myNickname }
+                });
+
+                hostDataConnection.on('open', () => {
+                    updateConnectionStatus('🟢 เข้าร่วมทริปแล้ว', 'active');
+                    startNetworkStats();
+                    // โทร Audio หลัง Data Channel เปิดแล้วเท่านั้น
+                    const call = peer.call(roomHostId, myStream);
+                    handleActiveCall(call);
+                });
+
+                hostDataConnection.on('data', (data) => {
+                    if (data.type === 'welcome') {
+                        roomState = data.roomState;
+                        updateUIList();
+                        // โทรหา Guest คนอื่นที่อยู่ในห้องแล้ว
+                        data.peersToCall.forEach(otherId => {
+                            const call = peer.call(otherId, myStream);
+                            handleActiveCall(call);
+                        });
+                    } else if (data.type === 'update-state') {
+                        roomState = data.roomState;
+                        updateUIList();
+                    } else if (data.type === 'leave') {
+                        handlePeerLeave(data.peerId);
+                        if (data.peerId === roomHostId) {
+                            alert('หัวหน้าทริปสิ้นสุดการสนทนา');
+                            location.reload();
+                        }
+                    }
+                });
+
+                hostDataConnection.on('close', () => {
+                    if (!isLeaving) attemptReconnect();
+                });
+            });
+
+            // รับสาย Audio จาก Guest คนอื่น
+            peer.on('call', (call) => {
+                call.answer(myStream);
+                handleActiveCall(call);
+            });
+
+            peer.on('disconnected', () => {
+                if (!isLeaving) {
+                    updateConnectionStatus('🟡 สัญญาณหลุด กำลังเชื่อมใหม่...', 'muted');
+                    peer.reconnect();
+                }
+            });
+
+            peer.on('error', (err2) => {
+                console.error('Guest peer error:', err2);
+                updateConnectionStatus(`🔴 เชื่อมต่อไม่ได้ (${err2.type})`, 'disconnected');
+                if (!isLeaving && err2.type !== 'peer-unavailable') attemptReconnect();
+            });
+
+        } else {
+            // error อื่นๆ เช่น network-error, server-error
+            console.error('PeerJS error:', err);
+            updateConnectionStatus(`🔴 เชื่อมต่อไม่ได้ (${err.type})`, 'disconnected');
+            if (!isLeaving) attemptReconnect();
+        }
+    });
+
+    // Host peer disconnected จาก PeerJS server
+    peer.on('disconnected', () => {
+        if (!isLeaving) {
+            updateConnectionStatus('🟡 สัญญาณหลุด กำลังเชื่อมใหม่...', 'muted');
+            peer.reconnect();
+        }
+    });
 }
 
 // ─────────────────────────────────────────────
-// BROADCAST + LEAVE + UI (เดิม)
+// BROADCAST
 // ─────────────────────────────────────────────
 function broadcastRoomState() {
     if (!isHost) return;
@@ -410,12 +464,16 @@ function broadcastMicStatus(isActive) {
     }
 }
 
+// ─────────────────────────────────────────────
+// LEAVE
+// ─────────────────────────────────────────────
 function leaveVoiceRoom() {
     isLeaving = true;
     stopBitrateControl();
     stopNetworkStats();
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
 
+    // แจ้งเพื่อนก่อนออก
     if (isHost) {
         Object.values(clientDataConnections).forEach(conn => {
             if (conn.open) conn.send({ type: 'leave', peerId: peer?.id });
@@ -424,18 +482,22 @@ function leaveVoiceRoom() {
         hostDataConnection.send({ type: 'leave' });
     }
 
+    // destroy หลังส่งข้อมูลเสร็จ
     setTimeout(() => {
         if (peer) { peer.destroy(); peer = null; }
-        isHost = false;
-        roomState = {};
+        isHost                = false;
+        roomState             = {};
         clientDataConnections = {};
-        hostDataConnection = null;
-        connectedPeers = {};
+        hostDataConnection    = null;
+        connectedPeers        = {};
         remoteAudioContainer.innerHTML = '';
         updateUIList();
     }, 300);
 }
 
+// ─────────────────────────────────────────────
+// UI HELPERS
+// ─────────────────────────────────────────────
 function updateUIList() {
     if (window.ClearWayUI?.renderMembers) {
         window.ClearWayUI.renderMembers(roomState, peer?.id ?? null);
@@ -443,10 +505,10 @@ function updateUIList() {
 }
 
 function updateConnectionStatus(text, stateClass) {
-    const badge = document.getElementById('connectionStatusBadge');
-    const span = document.getElementById('connectionStatusText');
-    if (badge) badge.className = `status-badge ${stateClass}`;
-    if (span) span.innerText = text;
+    const badge  = document.getElementById('connectionStatusBadge');
+    const span   = document.getElementById('connectionStatusText');
+    if (badge) badge.className  = `status-badge ${stateClass}`;
+    if (span)  span.innerText   = text;
 }
 
 // ─────────────────────────────────────────────
