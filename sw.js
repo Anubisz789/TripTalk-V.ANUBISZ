@@ -1,4 +1,4 @@
-const CACHE_NAME = 'triptalk-v3.1.0';
+const CACHE_NAME = 'triptalk-v3.0.0';
 
 // รายชื่อไฟล์ที่เราต้องการให้จำไว้ในเครื่องมือถือเลย
 const ASSETS_TO_CACHE = [
