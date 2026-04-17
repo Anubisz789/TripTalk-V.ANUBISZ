@@ -10,9 +10,23 @@ const RTC_CONFIG = {
     BITRATE_STEP:        2000,
     BITRATE_INTERVAL_MS: 500,
     RECONNECT_DELAY_MS:  3000,
+
     ICE_SERVERS: [
+        // STUN (ของเดิม)
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
+
+        // 🔥 [ADDED] TURN สำหรับมือถือ / 4G
+        {
+            urls: 'turn:openrelay.metered.ca:80',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+        },
+        {
+            urls: 'turn:openrelay.metered.ca:443',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+        }
     ],
 };
 
