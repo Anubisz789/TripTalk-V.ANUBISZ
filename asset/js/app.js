@@ -1,4 +1,22 @@
 // asset/js/app.js
+// 🔊 SOS SOUND ENGINE (ต้องประกาศก่อน webRTC.js โหลด)
+window.playSOSAlert = function() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === 'suspended') ctx.resume().then(() => {
+      const osc = ctx.createOscillator(); const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0.8, ctx.currentTime);
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.setValueAtTime(440, ctx.currentTime + 0.2);
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.4);
+      osc.frequency.setValueAtTime(440, ctx.currentTime + 0.6);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 1.0);
+      setTimeout(() => ctx.close(), 1500);
+    });
+  } catch(e) { console.warn('SOS Audio failed:', e); }
+};
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js?v=4.7.3').then(reg => {
@@ -13,25 +31,8 @@ if ('serviceWorker' in navigator) {
 }
 
 window.wakeLock = null;
-window.requestWakeLock = async function() { try { if ('wakeLock' in navigator) window.wakeLock = await navigator.wakeLock.request('screen'); } catch (err) { console.error(err); } };
+window.requestWakeLock = async function() { try { if ('wakeLock' in navigator) window.wakeLock = await navigator.wakeLock.request('screen'); } catch (err) {} };
 window.releaseWakeLock = function() { if (window.wakeLock) { window.wakeLock.release(); window.wakeLock = null; } };
-
-// 🔊 SOS ALERT SOUND ENGINE (Web Audio API, Cross-Platform)
-window.playSOSAlert = function() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    if (ctx.state === 'suspended') ctx.resume();
-    const osc = ctx.createOscillator(); const gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
-    gain.gain.setValueAtTime(0.8, ctx.currentTime);
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.setValueAtTime(440, ctx.currentTime + 0.2);
-    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.4);
-    osc.frequency.setValueAtTime(440, ctx.currentTime + 0.6);
-    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 1.0);
-    setTimeout(() => ctx.close(), 1500);
-  } catch(e) { console.warn('SOS Audio failed:', e); }
-};
 
 const PRESETS = {
   city: { name: '🏙️ ในเมือง', hp: 100, gain: 14, threshold: 50, hold: 1200 },
@@ -62,7 +63,6 @@ function savePreset() {
   if (!name) return alert('กรุณาใส่ชื่อ Preset');
   if (name.length > 20) return alert('ชื่อ Preset ต้องไม่เกิน 20 ตัวอักษร');
   if (Object.keys(PRESETS).includes(name)) return alert('ชื่อซ้ำกับ Preset ตั้งต้น');
-  
   window.customPresets[name] = {
     name: `⭐${name}`, threshold: parseInt(document.getElementById('thresholdSlider').value),
     hold: parseInt(document.getElementById('holdTimeSlider').value), hp: parseInt(document.getElementById('highpassSlider').value),
@@ -86,8 +86,7 @@ window.isRiding = false;
 window.toggleRide = async function() {
   const startRideBtn = document.getElementById('startRideBtn');
   const leaveBtn = document.getElementById('leaveRoomBtn');
-  const nicknameInput = document.getElementById('nicknameInput');
-  const roomInput = document.getElementById('roomInput');
+  const nicknameInput = document.getElementById('nicknameInput'); const roomInput = document.getElementById('roomInput');
   
   if (!window.isRiding) {
     const nick = nicknameInput.value.trim(); const room = roomInput.value.trim();
@@ -95,7 +94,7 @@ window.toggleRide = async function() {
 
     window.isRiding = true;
     startRideBtn.style.display = 'none';
-    leaveBtn.style.display = 'flex'; // ✅ แก้ไข: แสดงปุ่มออกห้อง
+    leaveBtn.style.display = 'flex'; // ✅ บังคับแสดงบนทุกอุปกรณ์
     
     const testMicBtn = document.getElementById('testMicBtn'); if (testMicBtn) testMicBtn.disabled = true;
     document.getElementById('membersPanel').style.display = 'block';
@@ -105,7 +104,7 @@ window.toggleRide = async function() {
     
     try {
       const unlockCtx = new (window.AudioContext || window.webkitAudioContext)();
-      await unlockCtx.resume(); // ✅ Resume ก่อนเริ่ม
+      await unlockCtx.resume();
       const stream = await window.startMainMic();
       window.ClearWayWebRTC.joinVoiceRoom(room, nick, stream);
       window.requestWakeLock(); window.initMap();
@@ -117,8 +116,6 @@ window.toggleRide = async function() {
       document.getElementById('networkStatusPanel').style.display = 'none';
       document.getElementById('sosBtnMain').style.display = 'none';
     }
-  } else {
-    // กดเริ่มใหม่จะไม่ทำอะไร ต้องกดออกห้องเท่านั้น
   }
 };
 
@@ -161,7 +158,7 @@ window.updateMap = function(roomState) {
 window.ClearWayUI = {
   renderMembers: (roomState, myPeerId) => {
     const list = document.getElementById('memberList'); if (!list) return;
-    list.innerHTML = '';
+    list.innerHTML = ''; // ✅ ล้างก่อน Render ทุกครั้ง ป้องกันร่างซ้อน
     Object.keys(roomState).forEach(id => {
       const user = roomState[id]; const li = document.createElement('li');
       li.className = `member-item ${user.isTalking ? 'talking' : ''} ${user.sos ? 'sos-alert' : ''}`;
@@ -198,53 +195,54 @@ document.addEventListener('DOMContentLoaded', () => {
   if (document.getElementById('savePresetBtn')) document.getElementById('savePresetBtn').addEventListener('click', savePreset);
   if (document.getElementById('deletePresetBtn')) document.getElementById('deletePresetBtn').addEventListener('click', deletePreset);
   
-  // 🔽 SOS BUTTON (Mobile & Desktop Compatible)
   const sosBtn = document.getElementById('sosBtnMain');
   if (sosBtn) {
     let isSOS = false;
     sosBtn.addEventListener('click', () => {
       isSOS = !isSOS;
       sosBtn.classList.toggle('active', isSOS);
-      window.ClearWayWebRTC.sendSOS(isSOS);
-      if (isSOS) window.playSOSAlert(); // ✅ เรียกเสียงทันทีที่กด
+      window.playSOSAlert(); // ✅ เล่นเสียงทันทีที่กด
+      window.ClearWayWebRTC.sendSOS(isSOS); // ✅ ส่งสัญญาณไปห้อง
     });
   }
   
   const vadToggle = document.getElementById('vadToggle'); const vadContent = document.getElementById('vadContent'); const vadIcon = document.getElementById('vadIcon');
   if (vadToggle && vadContent && vadIcon) { vadToggle.addEventListener('click', () => { vadContent.classList.toggle('collapsed'); vadIcon.innerText = vadContent.classList.contains('collapsed') ? '▶' : '▼'; }); }
   
-  // 🔽 LONG-PRESS 5s ENGINE (Robust Touch/Mouse)
+  // 🔽 LONG-PRESS ENGINE 5 วินาที (Pointer Events รองรับ Mouse & Touch)
   const leaveBtn = document.getElementById('leaveRoomBtn');
   if (leaveBtn) {
-    let pressStart = 0, animFrame = null;
+    let pressTimer = null, progressInterval = null, pressStart = 0;
     const HOLD_MS = 5000;
+    const textEl = leaveBtn.querySelector('.btn-text');
+
     const startPress = (e) => {
-      if (e.type === 'touchstart') e.preventDefault();
-      pressStart = Date.now(); leaveBtn.classList.add('pressing');
-      requestAnimationFrame(animate);
+      e.preventDefault();
+      pressStart = Date.now();
+      leaveBtn.classList.add('pressing');
+      textEl.innerText = `ค้างไว้ 5.0s`;
+      pressTimer = setTimeout(() => { window.leaveRoom(); }, HOLD_MS);
+      progressInterval = setInterval(() => {
+        const elapsed = Date.now() - pressStart;
+        const remain = Math.max(0, (1 - elapsed / HOLD_MS)).toFixed(1);
+        textEl.innerText = `ค้างไว้ ${remain}s`;
+        const progress = elapsed / HOLD_MS;
+        leaveBtn.style.background = `rgba(255, 75, 75, ${progress * 0.4})`;
+        leaveBtn.style.transform = `scale(${0.97 + progress * 0.03})`;
+      }, 50);
     };
+
     const cancelPress = () => {
-      cancelAnimationFrame(animFrame); leaveBtn.classList.remove('pressing');
-      leaveBtn.style.transform = ''; leaveBtn.style.borderColor = ''; leaveBtn.style.background = '';
-      leaveBtn.querySelector('.btn-text').innerText = 'ออกจากห้อง';
+      clearTimeout(pressTimer); clearInterval(progressInterval);
+      leaveBtn.classList.remove('pressing');
+      leaveBtn.style.background = ''; leaveBtn.style.transform = '';
+      textEl.innerText = 'ออกจากห้อง';
     };
-    const animate = () => {
-      const elapsed = Date.now() - pressStart;
-      const progress = Math.min(elapsed / HOLD_MS, 1);
-      const remain = (1 - progress).toFixed(1);
-      leaveBtn.querySelector('.btn-text').innerText = `ค้างไว้ ${remain}s`;
-      leaveBtn.style.transform = `scale(${0.97 + progress * 0.03})`;
-      leaveBtn.style.borderColor = `var(--danger-color)`;
-      leaveBtn.style.background = `rgba(255, 75, 75, ${progress * 0.4})`;
-      if (progress < 1) animFrame = requestAnimationFrame(animate);
-      else { leaveBtn.classList.remove('pressing'); window.leaveRoom(); }
-    };
-    leaveBtn.addEventListener('mousedown', startPress);
-    leaveBtn.addEventListener('touchstart', startPress, { passive: false });
-    leaveBtn.addEventListener('mouseup', cancelPress);
-    leaveBtn.addEventListener('mouseleave', cancelPress);
-    leaveBtn.addEventListener('touchend', cancelPress);
-    leaveBtn.addEventListener('touchcancel', cancelPress);
+
+    leaveBtn.addEventListener('pointerdown', startPress);
+    leaveBtn.addEventListener('pointerup', cancelPress);
+    leaveBtn.addEventListener('pointercancel', cancelPress);
+    leaveBtn.addEventListener('pointerleave', cancelPress);
   }
   
   loadPresets(); updateSliderLabels();
