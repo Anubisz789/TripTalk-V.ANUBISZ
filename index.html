@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>TripTalk | Connect the Ride. Clear the Way.</title>
-    <link rel="stylesheet" href="asset/css/style.css">
+    <link rel="stylesheet" href="./asset/css/style.css?v=4.6.6">
     <!-- Leaflet CSS for Map -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <style>
@@ -18,7 +18,7 @@
             background: #f44336;
             color: white;
             border-radius: 50%;
-            display: flex;
+            display: none;
             align-items: center;
             justify-content: center;
             font-size: 24px;
@@ -28,7 +28,6 @@
             z-index: 1000;
             cursor: pointer;
             transition: transform 0.1s;
-            display: none; /* Show only when in room */
         }
         .sos-btn:active { transform: scale(0.9); }
         .sos-btn.active { animation: pulse-red 1s infinite; }
@@ -175,7 +174,7 @@
     <link rel="manifest" href="manifest.json">
     <meta name="description" content="Connect the Ride. Clear the Way. เชื่อมต่อทุกการขับขี่ ชัดเจนทุกเส้นทาง">
     <meta property="og:type" content="website">
-    <meta property="og:url" content="https://triptalk.pages.dev/">
+    <meta property="og:url" content="https://anbtripster.pages.dev/">
     <meta property="og:title" content="Triptalk - Connect the Ride. Clear the Way.">
     <meta property="og:description" content="Connect the Ride. Clear the Way. เชื่อมต่อทุกการขับขี่ ชัดเจนทุกเส้นทาง">
     <meta property="og:image" content="asset/img/icon-512.png">
@@ -254,13 +253,15 @@
                 </button>
             </div>
 
+            <button id="sosBtn" class="sos-btn">🆘 SOS</button>
+
             <div class="settings-panel">
-                <div class="settings-header" id="vadToggle">
+                <div class="settings-header" id="vadToggle" style="cursor: pointer;">
                     <h3>⚙️ ตั้งค่าตัดเสียงลม (VAD)</h3>
                     <span class="toggle-icon" id="vadIcon">▼</span>
                 </div>
 
-                <div class="settings-content" id="vadContent">
+                <div class="settings-content collapsed" id="vadContent">
                     <div class="preset-section">
                         <div class="preset-section-title">🎛️ โปรไฟล์การขับขี่</div>
                         <div class="preset-row">
@@ -290,52 +291,53 @@
                         </div>
                     </div>
 
-                    <hr class="divider">
-
                     <div class="setting-item">
                         <div class="setting-label">
-                            <label for="thresholdSlider">ความไวไมค์ (Threshold)</label>
-                            <span class="setting-value" id="thresholdVal">50%</span>
+                            <span>ความไวในการตัดเสียง (Threshold)</span>
+                            <span class="setting-value">40%</span>
                         </div>
-                        <input type="range" id="thresholdSlider" min="0" max="100" value="50">
+                        <input type="range" id="thresholdSlider" min="0" max="100" value="40">
                     </div>
 
                     <div class="setting-item">
                         <div class="setting-label">
-                            <label for="holdTimeSlider">หน่วงเวลาปิดไมค์ (Hold)</label>
-                            <span class="setting-value" id="holdTimeVal">1.5s</span>
+                            <span>หน่วงเวลาไมค์ปิด (Hold Time)</span>
+                            <span class="setting-value">0.8s</span>
                         </div>
-                        <input type="range" id="holdTimeSlider" min="500" max="3000" step="100" value="1500">
+                        <input type="range" id="holdTimeSlider" min="100" max="3000" step="100" value="800">
                     </div>
 
                     <div class="setting-item">
                         <div class="setting-label">
-                            <label for="highpassSlider">ตัดเสียงลม (Wind Filter)</label>
-                            <span class="setting-value" id="highpassVal">100 Hz</span>
+                            <span>ตัดเสียงทุ้ม/ลม (High-pass)</span>
+                            <span class="setting-value">150 Hz</span>
                         </div>
-                        <input type="range" id="highpassSlider" min="60" max="200" step="10" value="100">
+                        <input type="range" id="highpassSlider" min="0" max="500" step="10" value="150">
                     </div>
 
                     <div class="setting-item">
                         <div class="setting-label">
-                            <label for="gainSlider">เพิ่มเสียงพูด (Voice Boost)</label>
-                            <span class="setting-value" id="gainVal">1.4x</span>
+                            <span>ขยายเสียงพูด (Gain Boost)</span>
+                            <span class="setting-value">1.2x</span>
                         </div>
-                        <input type="range" id="gainSlider" min="10" max="18" step="1" value="14">
+                        <input type="range" id="gainSlider" min="1" max="3" step="0.1" value="1.2">
                     </div>
                 </div>
             </div>
         </main>
+
+        <!-- SOS Button -->
+        <div id="sosBtn" class="sos-btn">SOS</div>
+        
+        <!-- Audio Container for WebRTC -->
+        <div id="remoteAudios" style="display:none;"></div>
     </div>
 
-    <!-- SOS Button -->
-    <div id="sosBtn" class="sos-btn">SOS</div>
-
-    <!-- Leaflet JS -->
+    <!-- Scripts with Cache Busting -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-    <script src="asset/js/webRTC.js"></script>
-    <script src="asset/js/vad.js"></script>
-    <script src="asset/js/app.js"></script>
+    <script src="./asset/js/vad.js?v=4.6.6"></script>
+    <script src="./asset/js/webRTC.js?v=4.6.6"></script>
+    <script src="./asset/js/app.js?v=4.6.6"></script>
 </body>
 </html>
