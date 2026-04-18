@@ -1,284 +1,252 @@
-// asset/js/app.js
+// asset/js/app.js - TripTalk v4.6.6 (Architect Ultimate Edition)
 
 // ─────────────────────────────────────────────
-// [ARCHITECT v4.5] MAP & LOCATION LOGIC
+// [ARCHITECT บัคข้อ 5: Path & Dead Code Fix] ใช้ Relative Path และลบโค้ดส่วนเกิน
+// ─────────────────────────────────────────────
+
+// ─────────────────────────────────────────────
+// GLOBAL AUDIO MANAGEMENT (v4.6.6)
+// ─────────────────────────────────────────────
+window.TripTalkAudio = {
+    context: null,
+    gainNode: null,
+    remoteStreams: {}, // { peerId: { source, gain } }
+    isUnlocked: false,
+
+    async unlock() {
+        if (this.isUnlocked) return;
+        try {
+            this.context = new (window.AudioContext || window.webkitAudioContext)();
+            this.gainNode = this.context.createGain();
+            this.gainNode.connect(this.context.destination);
+            
+            // Play silent buffer to unlock on iOS
+            const buffer = this.context.createBuffer(1, 1, 22050);
+            const source = this.context.createBufferSource();
+            source.buffer = buffer;
+            source.connect(this.context.destination);
+            source.start(0);
+            
+            if (this.context.state === 'suspended') {
+                await this.context.resume();
+            }
+            this.isUnlocked = true;
+            console.log('[Audio] Context Unlocked & Running');
+        } catch (e) {
+            console.error('[Audio] Failed to unlock context:', e);
+        }
+    },
+
+    connectRemoteStream(stream, peerId) {
+        if (!this.context || !this.isUnlocked) return;
+        if (this.remoteStreams[peerId]) this.remoteStreams[peerId].source.disconnect();
+
+        const source = this.context.createMediaStreamSource(stream);
+        const gain = this.context.createGain();
+        source.connect(gain);
+        gain.connect(this.gainNode);
+        
+        this.remoteStreams[peerId] = { source, gain };
+        console.log('[Audio] Stream connected for:', peerId);
+    }
+};
+
+// ─────────────────────────────────────────────
+// UI & APP LOGIC
 // ─────────────────────────────────────────────
 let map = null;
-let markers = {}; // { peerId: Marker }
-let locationWatchId = null;
-let lastLocationSent = 0;
+let userMarker = null;
+let peerMarkers = {};
+let isJoined = false;
+let locationInterval = null;
 
+// [ARCHITECT บัคข้อ 4: GPS Race Condition Fix] ปรับปรุงลำดับการโหลดแผนที่
 function initMap() {
-    if (map) return;
-    console.log('[Map] Initializing Map...');
+    const mapDiv = document.getElementById('map');
+    if (!mapDiv || map) return;
+
+    console.log('[Map] Initializing Leaflet...');
     map = L.map('map').setView([13.7367, 100.5231], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
-    
-    // Resize map to fit container
+
+    // Force redraw after init to prevent blank tiles
     setTimeout(() => map.invalidateSize(), 500);
 }
 
-function updateMapMarkers(roomState) {
-    if (!map) return; // Wait for initMap
+async function fetchLocation(immediate = false) {
+    if (!navigator.geolocation) return;
     
-    Object.keys(roomState).forEach(peerId => {
-        const user = roomState[peerId];
-        if (user.lat && user.lng) {
-            if (!markers[peerId]) {
-                const icon = L.divIcon({
-                    className: 'custom-div-icon',
-                    html: `<div style='background-color:${user.isSOS ? "#f44336" : "#4caf50"};' class='marker-pin'></div><span class='marker-label'>${user.nickname}</span>`,
-                    iconSize: [30, 42],
-                    iconAnchor: [15, 42]
-                });
-                markers[peerId] = L.marker([user.lat, user.lng], { icon }).addTo(map)
-                    .bindPopup(user.nickname + (user.isSOS ? ' 🚨 SOS!' : ''));
-            } else {
-                markers[peerId].setLatLng([user.lat, user.lng]);
-                if (user.isSOS) markers[peerId].openPopup();
-            }
-        }
-    });
-}
-
-function startLocationSharing() {
-    if ("geolocation" in navigator) {
-        console.log('[Location] Requesting GPS permission...');
-        locationWatchId = navigator.geolocation.watchPosition(
-            (pos) => {
-                const { latitude, longitude } = pos.coords;
-                const now = Date.now();
-                // Send location immediately on first fix, then every 10s
-                if (now - lastLocationSent > 10000 || lastLocationSent === 0) {
-                    window.ClearWayWebRTC.sendLocation(latitude, longitude);
-                    lastLocationSent = now;
-                    document.getElementById('locationStatus').innerText = 'แชร์พิกัดอยู่ 🟢';
-                    
-                    // Center map on ME for the first time
-                    if (lastLocationSent === now && map) {
-                        map.setView([latitude, longitude], 15);
-                    }
+    navigator.geolocation.getCurrentPosition(
+        (pos) => {
+            const { latitude: lat, longitude: lng } = pos.coords;
+            console.log(`[GPS] Location updated: ${lat}, ${lng}`);
+            
+            if (!map) initMap();
+            if (map) {
+                if (!userMarker) {
+                    userMarker = L.marker([lat, lng]).addTo(map).bindPopup('คุณ (You)').openPopup();
+                } else {
+                    userMarker.setLatLng([lat, lng]);
                 }
-            },
-            (err) => {
-                console.warn('[Location] Error:', err.message);
-                document.getElementById('locationStatus').innerText = 'GPS ปิดอยู่ 🔴';
-            },
-            { enableHighAccuracy: true, timeout: 20000, maximumAge: 10000 }
-        );
-    }
+                if (immediate) map.setView([lat, lng], 15);
+            }
+            
+            if (window.ClearWayWebRTC && isJoined) {
+                window.ClearWayWebRTC.sendLocation(lat, lng);
+            }
+            
+            const statusLabel = document.getElementById('locationStatus');
+            if (statusLabel) statusLabel.innerText = '📍 อัปเดตพิกัดแล้ว';
+        },
+        (err) => {
+            console.warn('[GPS] Error fetching location:', err.message);
+            const statusLabel = document.getElementById('locationStatus');
+            if (statusLabel) statusLabel.innerText = '❌ พิกัดขัดข้อง';
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+    );
 }
 
-function stopLocationSharing() {
-    if (locationWatchId) navigator.geolocation.clearWatch(locationWatchId);
-    locationWatchId = null;
-    lastLocationSent = 0;
-}
+window.updatePeerLocation = (peerId, lat, lng, nickname) => {
+    if (!map) initMap();
+    if (!map) return;
 
-// ─────────────────────────────────────────────
-// [ARCHITECT v4.5] AUDIO & SOS SYSTEM
-// ─────────────────────────────────────────────
-let isSOSActive = false;
-const sosBtn = document.getElementById('sosBtn');
-
-if (sosBtn) {
-    sosBtn.addEventListener('click', () => {
-        isSOSActive = !isSOSActive;
-        sosBtn.classList.toggle('active', isSOSActive);
-        window.ClearWayWebRTC.sendSOS(isSOSActive);
-        
-        // Force resume audio context on click (Mobile Unlock)
-        forceResumeAudio();
-        
-        if (isSOSActive) {
-            if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
-            alert('ส่งสัญญาณ SOS ถึงทุกคนในกลุ่มแล้ว! 🚨');
-        }
-    });
-}
-
-function forceResumeAudio() {
-    // Attempt to resume all audio elements and context
-    const audios = document.querySelectorAll('audio');
-    audios.forEach(a => a.play().catch(() => {}));
-    
-    if (window.audioContext && window.audioContext.state === 'suspended') {
-        window.audioContext.resume();
-    }
-}
-
-// ─────────────────────────────────────────────
-// SERVICE WORKER & PWA
-// ─────────────────────────────────────────────
-// [ARCHITECT v4.6] SERVICE WORKER & AUTO-UPDATE LOGIC
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js', { scope: './' })
-            .then(reg => {
-                console.log('[SW] Registered successfully');
-                
-                // ตรวจจับเมื่อมี SW ตัวใหม่พร้อมใช้งาน (Waiting state)
-                reg.addEventListener('updatefound', () => {
-                    const newWorker = reg.installing;
-                    newWorker.addEventListener('statechange', () => {
-                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                            // แจ้งเตือนผู้ใช้หรือ Reload อัตโนมัติเมื่ออัปเดตเสร็จ
-                            console.log('[SW] New version found! Reloading...');
-                            window.location.reload();
-                        }
-                    });
-                });
+    if (!peerMarkers[peerId]) {
+        peerMarkers[peerId] = L.marker([lat, lng], {
+            icon: L.icon({
+                iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+                iconSize: [25, 41],
+                iconAnchor: [12, 41]
             })
-            .catch(e => console.error('[SW] Registration failed:', e));
+        }).addTo(map).bindPopup(nickname);
+    } else {
+        peerMarkers[peerId].setLatLng([lat, lng]);
+    }
+};
+
+window.removePeerLocation = (peerId) => {
+    if (peerMarkers[peerId]) {
+        peerMarkers[peerId].remove();
+        delete peerMarkers[peerId];
+    }
+};
+
+window.renderMembersUI = (roomState, myId) => {
+    const list = document.getElementById('memberList');
+    if (!list) return;
+    list.innerHTML = '';
+    
+    Object.entries(roomState).forEach(([pid, state]) => {
+        const li = document.createElement('li');
+        li.className = 'member-item';
+        const isMe = pid === myId;
+        const talkingClass = state.isTalking ? 'talking' : '';
+        const sosClass = state.isSOS ? 'sos-active' : '';
+        
+        li.innerHTML = `
+            <div class="member-info">
+                <span class="member-status ${talkingClass}"></span>
+                <span class="member-name">${state.nickname} ${isMe ? '(คุณ)' : ''}</span>
+                <span class="member-role">${state.role}</span>
+            </div>
+            ${state.isSOS ? '<span class="sos-tag">🆘 SOS</span>' : ''}
+        `;
+        list.appendChild(li);
+    });
+};
+
+// ─────────────────────────────────────────────
+// EVENT LISTENERS
+// ─────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+    const startBtn = document.getElementById('startRideBtn');
+    const nicknameInput = document.getElementById('nicknameInput');
+    const roomInput = document.getElementById('roomInput');
+    const vadToggle = document.getElementById('vadToggle');
+    const vadContent = document.getElementById('vadContent');
+    const sosBtn = document.getElementById('sosBtn');
+
+    // [ARCHITECT บัคข้อ 5 Fix] ป้องกัน Error หากปุ่มไม่มีอยู่จริง
+    if (vadToggle && vadContent) {
+        vadToggle.addEventListener('click', () => {
+            vadContent.classList.toggle('collapsed');
+            const icon = document.getElementById('vadIcon');
+            if (icon) icon.innerText = vadContent.classList.contains('collapsed') ? '▶' : '▼';
+        });
+    }
+
+    if (startBtn) {
+        startBtn.addEventListener('click', async () => {
+            if (!isJoined) {
+                const nick = nicknameInput.value.trim();
+                const room = roomInput.value.trim();
+                if (!nick || !room) return alert('กรุณากรอกชื่อและรหัสทริป');
+
+                startBtn.disabled = true;
+                startBtn.innerHTML = '<span>⏳ กำลังเข้าห้อง...</span>';
+
+                try {
+                    // [ARCHITECT บัคข้อ 3 Fix] ปลดล็อกเสียงทันทีที่กดปุ่ม
+                    await window.TripTalkAudio.unlock();
+                    
+                    await window.ClearWayWebRTC.joinVoiceRoom(room, nick);
+                    
+                    isJoined = true;
+                    startBtn.disabled = false;
+                    startBtn.classList.add('btn-danger');
+                    startBtn.innerHTML = '<span class="btn-icon">🛑</span><span>หยุดสนทนา</span>';
+                    
+                    document.getElementById('roomControlPanel').style.display = 'none';
+                    document.getElementById('membersPanel').style.display = 'block';
+                    document.getElementById('networkStatusPanel').style.display = 'flex';
+                    if (sosBtn) sosBtn.style.display = 'flex';
+
+                    // [ARCHITECT บัคข้อ 4 Fix] ดึงพิกัดทันที ไม่ต้องรอรอบ
+                    fetchLocation(true);
+                    locationInterval = setInterval(() => fetchLocation(), 15000);
+                    
+                } catch (e) {
+                    alert(e.message);
+                    startBtn.disabled = false;
+                    startBtn.innerHTML = '<span class="btn-icon">🏍️</span><span>เริ่มสนทนา</span>';
+                }
+            } else {
+                window.ClearWayWebRTC.leaveVoiceRoom();
+                location.reload(); // [ARCHITECT บัคข้อ 1 Fix] รีโหลดเพื่อล้าง State
+            }
+        });
+    }
+
+    if (sosBtn) {
+        sosBtn.addEventListener('click', () => {
+            const isActive = sosBtn.classList.toggle('active');
+            window.ClearWayWebRTC.sendSOS(isActive);
+        });
+    }
+});
+
+// [ARCHITECT บัคข้อ 1: Zombie SW Fix] บังคับ Reload เมื่อ SW อัปเดต
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js?v=4.6.6').then(reg => {
+        reg.addEventListener('updatefound', () => {
+            const newWorker = reg.installing;
+            newWorker.addEventListener('statechange', () => {
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    console.log('[SW] New version available, reloading...');
+                    window.location.reload();
+                }
+            });
+        });
     });
 
-    // ป้องกันการ Reload วนลูป (Infinite Reload Loop)
     let refreshing = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (!refreshing) {
-            refreshing = true;
             window.location.reload();
+            refreshing = true;
         }
     });
 }
-
-// ─────────────────────────────────────────────
-// SCREEN WAKE LOCK
-// ─────────────────────────────────────────────
-let wakeLock = null;
-async function requestWakeLock() {
-    try {
-        if ('wakeLock' in navigator) {
-            wakeLock = await navigator.wakeLock.request('screen');
-        }
-    } catch (err) {}
-}
-
-// ─────────────────────────────────────────────
-// PRESET SYSTEM
-// ─────────────────────────────────────────────
-const PRESET_DEFINITIONS = {
-    city: { label: '🏙️ ในเมือง', threshold: 35, holdMs: 800, highpassHz: 80, gain: 1.2 },
-    touring: { label: '🛣️ ทริประยะไกล', threshold: 50, holdMs: 1200, highpassHz: 100, gain: 1.4 },
-    racing: { label: '🏎️ ความเร็วสูง', threshold: 65, holdMs: 1500, highpassHz: 150, gain: 1.6 }
-};
-
-function applyPreset(key) {
-    const p = { ...PRESET_DEFINITIONS, ...JSON.parse(localStorage.getItem('custom_presets') || '{}') }[key];
-    if (!p) return;
-    
-    document.getElementById('thresholdSlider').value = p.threshold;
-    document.getElementById('holdTimeSlider').value = p.holdMs;
-    document.getElementById('highpassSlider').value = p.highpassHz;
-    document.getElementById('gainSlider').value = p.gain * 10;
-    
-    // Update labels
-    document.getElementById('thresholdVal').innerText = p.threshold + '%';
-    document.getElementById('holdTimeVal').innerText = (p.holdMs/1000).toFixed(1) + 's';
-    document.getElementById('highpassVal').innerText = p.highpassHz + ' Hz';
-    document.getElementById('gainVal').innerText = p.gain.toFixed(1) + 'x';
-    
-    if (window.applyPresetToAudio) window.applyPresetToAudio(p.highpassHz, p.gain);
-}
-
-// ─────────────────────────────────────────────
-// CALL CONTROL
-// ─────────────────────────────────────────────
-let isRiding = false;
-
-async function toggleRide() {
-    const roomId = document.getElementById('roomInput').value.trim();
-    const nickname = document.getElementById('nicknameInput').value.trim();
-
-    if (!roomId || !nickname) {
-        alert('กรุณาใส่รหัสทริป และ ชื่อเล่น!');
-        return;
-    }
-
-    if (!isRiding) {
-        isRiding = true;
-        document.getElementById('startRideBtn').classList.add('stop');
-        document.getElementById('startBtnText').innerText = 'ออกจากห้อง';
-        document.getElementById('roomControlPanel').style.display = 'none';
-        document.getElementById('membersPanel').style.display = 'block';
-        document.getElementById('sosBtn').style.display = 'flex';
-
-        // Unlock audio context
-        forceResumeAudio();
-
-        const stream = await window.startMainMic();
-        if (stream) {
-            window.ClearWayWebRTC.joinVoiceRoom(roomId, nickname, stream);
-            requestWakeLock();
-            initMap();
-            startLocationSharing();
-        }
-    } else {
-        isRiding = false;
-        document.getElementById('startRideBtn').classList.remove('stop');
-        document.getElementById('startBtnText').innerText = 'เริ่มสนทนา';
-        document.getElementById('roomControlPanel').style.display = 'block';
-        document.getElementById('membersPanel').style.display = 'none';
-        document.getElementById('sosBtn').style.display = 'none';
-
-        window.stopMainMic();
-        window.ClearWayWebRTC.leaveVoiceRoom();
-        stopLocationSharing();
-    }
-}
-
-// ─────────────────────────────────────────────
-// UI RENDERER & INITIALIZATION
-// ─────────────────────────────────────────────
-window.ClearWayUI = {
-    renderMembers(roomState, myId) {
-        const list = document.getElementById('memberList');
-        if (!list) return;
-        list.innerHTML = '';
-        Object.keys(roomState).forEach(id => {
-            const user = roomState[id];
-            const li = document.createElement('li');
-            li.className = `member-item ${user.isSOS ? 'sos-alert' : ''}`;
-            li.innerHTML = `
-                <div class="member-info">
-                    <div class="mic-indicator ${user.isTalking ? 'active' : ''}"></div>
-                    <span>${user.nickname} ${id === myId ? '(คุณ)' : ''}</span>
-                </div>
-                <span>${user.isSOS ? '🚨 SOS' : (user.role === 'Host' ? '👑 Host' : '👤')}</span>
-            `;
-            list.appendChild(li);
-        });
-        updateMapMarkers(roomState);
-    },
-    onSOS(peerId, nickname, active) {
-        if (active) {
-            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-            forceResumeAudio(); // Try to play audio when SOS received
-        }
-    },
-    updateMap: updateMapMarkers
-};
-
-document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('startRideBtn').addEventListener('click', toggleRide);
-    document.getElementById('vadToggle').addEventListener('click', () => {
-        document.getElementById('vadContent').classList.toggle('collapsed');
-    });
-    
-    // Populate presets
-    const sel = document.getElementById('presetSelector');
-    if (sel) {
-        Object.entries(PRESET_DEFINITIONS).forEach(([k, v]) => {
-            const opt = document.createElement('option');
-            opt.value = k; opt.innerText = v.label;
-            sel.appendChild(opt);
-        });
-        sel.addEventListener('change', (e) => applyPreset(e.target.value));
-        applyPreset('touring');
-    }
-
-    // Global click listener to unlock audio
-    document.addEventListener('click', forceResumeAudio, { once: false });
-});
