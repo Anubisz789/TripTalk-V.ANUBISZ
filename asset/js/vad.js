@@ -9,7 +9,7 @@ const VAD_CONFIG = {
     NOISE_FLOOR_MARGIN:   10,     // เพิ่ม margin กัน noise
     MIN_HOLD_MS:          400,    // เพิ่มเวลาหน่วงขั้นต่ำ
     HIGHPASS_FREQ:        100,    // Hz
-    GAIN_VALUE:           1.4,    // boost
+    GAIN_VALUE:           1.2,    // boost
     FFT_SIZE:             512,
     VAD_INTERVAL_MS:      50,     // ลดความถี่การคำนวณเพื่อประหยัดแบต
     UI_INTERVAL_MS:       100,
