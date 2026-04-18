@@ -348,14 +348,38 @@ function startStatsLoop() {
                         loss = report.packetsLost || 0;
                     }
                 });
-                
-                // Update UI Network Status if elements exist
+                         try {
+                const rtt = stats.get('rtt');
                 const pingEl = document.getElementById('pingValue');
+                const bitrateEl = document.getElementById('bitrateValue');
+                const qualityIcon = document.getElementById('qualityIcon');
+                const qualityValue = document.getElementById('qualityValue');
+
                 if (pingEl) {
                     pingEl.innerText = `${Math.round(rtt * 1000)} ms`;
                     pingEl.className = rtt < RTC_CONFIG.RTT_UNSTABLE_THRESHOLD ? 'net-value good' : 'net-value warn';
                 }
-            } catch(e) {}
+
+                if (bitrateEl) {
+                    bitrateEl.innerText = `${Math.round(currentBitrate / 1000)} kbps`;
+                }
+
+                if (qualityIcon && qualityValue) {
+                    if (rtt < 0.1) {
+                        qualityIcon.innerText = '🟢';
+                        qualityValue.innerText = 'ยอดเยี่ยม';
+                        qualityValue.className = 'net-value good';
+                    } else if (rtt < 0.25) {
+                        qualityIcon.innerText = '🟡';
+                        qualityValue.innerText = 'พอใช้';
+                        qualityValue.className = 'net-value warn';
+                    } else {
+                        qualityIcon.innerText = '🔴';
+                        qualityValue.innerText = 'สัญญาณอ่อน';
+                        qualityValue.className = 'net-value bad';
+                    }
+                }
+            } catch(e) {}{}
         }
     }, RTC_CONFIG.STATS_INTERVAL_MS);
 
