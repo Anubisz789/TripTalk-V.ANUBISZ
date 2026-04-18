@@ -4,64 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>TripTalk | Connect the Ride. Clear the Way.</title>
-    <link rel="stylesheet" href="./asset/css/style.css?v=4.6.6">
-    <!-- Leaflet CSS for Map -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <link rel="stylesheet" href="asset/css/style.css?v=4.7.0">
+    <!-- Leaflet Map CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        /* [ARCHITECT v4.4] SOS & MAP STYLES */
-        .sos-btn {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 70px;
-            height: 70px;
-            background: #f44336;
-            color: white;
-            border-radius: 50%;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            font-weight: bold;
-            box-shadow: 0 4px 15px rgba(244, 67, 54, 0.4);
-            border: 4px solid rgba(255, 255, 255, 0.2);
-            z-index: 1000;
-            cursor: pointer;
-            transition: transform 0.1s;
-        }
-        .sos-btn:active { transform: scale(0.9); }
-        .sos-btn.active { animation: pulse-red 1s infinite; }
-
-        @keyframes pulse-red {
-            0% { box-shadow: 0 0 0 0 rgba(244, 67, 54, 0.7); }
-            70% { box-shadow: 0 0 0 20px rgba(244, 67, 54, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(244, 67, 54, 0); }
-        }
-
-        .map-panel {
-            background: rgba(255,255,255,0.04);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 12px;
-            margin-top: 14px;
-            overflow: hidden;
-            display: none;
-        }
-        #map {
-            width: 100%;
-            height: 250px;
-            background: #1a1a1a;
-        }
-        .map-header {
-            padding: 8px 12px;
-            font-size: 11px;
-            color: rgba(255,255,255,0.4);
-            text-transform: uppercase;
-            letter-spacing: 0.6px;
-            display: flex;
-            justify-content: space-between;
-        }
-
-        /* Existing Styles */
+        /* Network Status Panel (เดิม) */
         .network-status-panel {
             display: flex;
             justify-content: space-around;
@@ -95,6 +42,7 @@
         .net-value.warn { color: #ff9800; }
         .net-value.bad  { color: #f44336; }
 
+        /* [ADDED] Preset System Styles */
         .preset-section {
             background: rgba(255,255,255,0.04);
             border: 1px solid rgba(255,255,255,0.1);
@@ -114,6 +62,7 @@
             gap: 8px;
             align-items: center;
         }
+        /* [ADDED] Dropdown รองรับ gloves — สูงอย่างน้อย 48px */
         .preset-select {
             flex: 1;
             padding: 12px 10px;
@@ -148,6 +97,7 @@
             min-height: 48px;
         }
         .preset-name-input::placeholder { color: rgba(255,255,255,0.3); }
+        /* [ADDED] ปุ่ม preset — ใหญ่พอสำหรับถุงมือ */
         .btn-preset-save {
             padding: 12px 16px;
             border-radius: 10px;
@@ -170,11 +120,48 @@
             min-width: 48px;
             cursor: pointer;
         }
+
+        /* [v4.7.0] SOS & Map Styles */
+        .sos-btn {
+            background: #ff4444;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            font-size: 24px;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(255, 68, 68, 0.4);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s, background 0.2s;
+            z-index: 1000;
+        }
+        .sos-btn.active {
+            background: #cc0000;
+            animation: pulse-red 1s infinite;
+        }
+        @keyframes pulse-red {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.7); }
+            70% { transform: scale(1.1); box-shadow: 0 0 0 15px rgba(255, 68, 68, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 68, 68, 0); }
+        }
+        #map {
+            height: 250px;
+            width: 100%;
+            border-radius: 12px;
+            margin-top: 15px;
+            border: 1px solid rgba(255,255,255,0.1);
+            display: none;
+        }
+        .map-active #map { display: block; }
     </style>
     <link rel="manifest" href="manifest.json">
     <meta name="description" content="Connect the Ride. Clear the Way. เชื่อมต่อทุกการขับขี่ ชัดเจนทุกเส้นทาง">
     <meta property="og:type" content="website">
-    <meta property="og:url" content="https://anbtripster.pages.dev/">
+    <meta property="og:url" content="https://triptalk.pages.dev/">
     <meta property="og:title" content="Triptalk - Connect the Ride. Clear the Way.">
     <meta property="og:description" content="Connect the Ride. Clear the Way. เชื่อมต่อทุกการขับขี่ ชัดเจนทุกเส้นทาง">
     <meta property="og:image" content="asset/img/icon-512.png">
@@ -202,7 +189,7 @@
                 </div>
             </div>
 
-            <!-- Network Status Panel -->
+            <!-- Network Status Panel (เดิม — โผล่เมื่อเชื่อมต่อแล้ว) -->
             <div class="network-status-panel" id="networkStatusPanel" style="display:none;">
                 <div class="net-stat">
                     <span class="net-icon">📶</span>
@@ -236,45 +223,49 @@
                 <div class="members-panel" id="membersPanel" style="display: none;">
                     <h3>👥 สมาชิกในทริป</h3>
                     <ul id="memberList" class="member-list"></ul>
-                    
-                    <!-- [ARCHITECT v4.4] MAP PANEL -->
-                    <div class="map-panel" id="mapPanel" style="display: block;">
-                        <div class="map-header">
-                            <span>📍 พิกัดเพื่อนร่วมทริป</span>
-                            <span id="locationStatus">กำลังค้นหา...</span>
-                        </div>
-                        <div id="map"></div>
-                    </div>
                 </div>
 
                 <button id="startRideBtn" class="btn-primary">
                     <span class="btn-icon">🏍️</span>
                     <span id="startBtnText">เริ่มสนทนา</span>
                 </button>
+
+                <!-- [v4.7.0] SOS Button (Hidden initially) -->
+                <div id="sosContainer" style="display: none; justify-content: center; margin-top: 20px;">
+                    <button id="sosBtnMain" class="sos-btn">SOS</button>
+                </div>
             </div>
 
-            <button id="sosBtn" class="sos-btn">🆘 SOS</button>
+            <!-- [v4.7.0] Map Container -->
+            <div id="map" class="map-container"></div>
 
             <div class="settings-panel">
-                <div class="settings-header" id="vadToggle" style="cursor: pointer;">
+                <div class="settings-header" id="vadToggle">
                     <h3>⚙️ ตั้งค่าตัดเสียงลม (VAD)</h3>
                     <span class="toggle-icon" id="vadIcon">▼</span>
                 </div>
 
-                <div class="settings-content collapsed" id="vadContent">
+                <div class="settings-content" id="vadContent">
+
+                    <!-- [ADDED] PRESET SELECTOR — ส่วนบนสุดของ settings -->
                     <div class="preset-section">
                         <div class="preset-section-title">🎛️ โปรไฟล์การขับขี่</div>
                         <div class="preset-row">
+                            <!-- dropdown จะถูก populate โดย app.js -->
                             <select id="presetSelector" class="preset-select">
                                 <option value="touring">🛣️ ทริประยะไกล</option>
                             </select>
                         </div>
+                        <!-- Save / Delete custom preset -->
                         <div class="preset-custom-row">
-                            <input type="text" id="customPresetName" class="preset-name-input" placeholder="ชื่อ preset ใหม่...">
+                            <input type="text" id="customPresetName"
+                                   class="preset-name-input"
+                                   placeholder="ชื่อ preset ใหม่...">
                             <button id="savePresetBtn" class="btn-preset-save" title="บันทึก preset">💾</button>
                             <button id="deletePresetBtn" class="btn-preset-delete" title="ลบ preset">🗑️</button>
                         </div>
                     </div>
+                    <!-- END PRESET SELECTOR -->
 
                     <div class="test-mic-section">
                         <button id="testMicBtn" class="btn-outline">🎙️ ทดสอบระดับเสียง</button>
@@ -291,53 +282,58 @@
                         </div>
                     </div>
 
+                    <hr class="divider">
+
+                    <!-- Threshold slider (เดิม) -->
                     <div class="setting-item">
                         <div class="setting-label">
-                            <span>ความไวในการตัดเสียง (Threshold)</span>
-                            <span class="setting-value">40%</span>
+                            <label for="thresholdSlider">ความไวไมค์ (Threshold)</label>
+                            <span class="setting-value" id="thresholdVal">50%</span>
                         </div>
-                        <input type="range" id="thresholdSlider" min="0" max="100" value="40">
+                        <input type="range" id="thresholdSlider" min="0" max="100" value="50">
+                        <p class="hint">เลื่อนให้เส้นขาวหนีเสียงรบกวนพื้นหลัง</p>
                     </div>
 
+                    <!-- Hold Time slider (เดิม) -->
                     <div class="setting-item">
                         <div class="setting-label">
-                            <span>หน่วงเวลาไมค์ปิด (Hold Time)</span>
-                            <span class="setting-value">0.8s</span>
+                            <label for="holdTimeSlider">หน่วงเวลาปิดไมค์ (Hold)</label>
+                            <span class="setting-value" id="holdTimeVal">1.5s</span>
                         </div>
-                        <input type="range" id="holdTimeSlider" min="100" max="3000" step="100" value="800">
+                        <input type="range" id="holdTimeSlider" min="500" max="3000" step="100" value="1500">
+                        <p class="hint">ป้องกันไมค์ตัดเวลาเว้นวรรคหายใจ</p>
                     </div>
 
+                    <!-- [ADDED] Wind Filter slider (highpass Hz) -->
                     <div class="setting-item">
                         <div class="setting-label">
-                            <span>ตัดเสียงทุ้ม/ลม (High-pass)</span>
-                            <span class="setting-value">150 Hz</span>
+                            <label for="highpassSlider">ตัดเสียงลม (Wind Filter)</label>
+                            <span class="setting-value" id="highpassVal">100 Hz</span>
                         </div>
-                        <input type="range" id="highpassSlider" min="0" max="500" step="10" value="150">
+                        <input type="range" id="highpassSlider" min="60" max="200" step="10" value="100">
+                        <p class="hint">ค่าสูง = ตัดเสียงรบกวนมากขึ้น (เสียงลม/เครื่องยนต์)</p>
                     </div>
 
+                    <!-- [ADDED] Voice Boost slider (gain x10) -->
                     <div class="setting-item">
                         <div class="setting-label">
-                            <span>ขยายเสียงพูด (Gain Boost)</span>
-                            <span class="setting-value">1.2x</span>
+                            <label for="gainSlider">เพิ่มเสียงพูด (Voice Boost)</label>
+                            <span class="setting-value" id="gainVal">1.4x</span>
                         </div>
-                        <input type="range" id="gainSlider" min="1" max="3" step="0.1" value="1.2">
+                        <input type="range" id="gainSlider" min="10" max="18" step="1" value="14">
+                        <p class="hint">เพิ่มความดังเสียงพูด (ไม่ควรเกิน 1.8x)</p>
                     </div>
+
                 </div>
             </div>
         </main>
-
-        <!-- SOS Button -->
-        <div id="sosBtn" class="sos-btn">SOS</div>
-        
-        <!-- Audio Container for WebRTC -->
-        <div id="remoteAudios" style="display:none;"></div>
     </div>
 
-    <!-- Scripts with Cache Busting -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-    <script src="./asset/js/vad.js?v=4.6.6"></script>
-    <script src="./asset/js/webRTC.js?v=4.6.6"></script>
-    <script src="./asset/js/app.js?v=4.6.6"></script>
+    <!-- Leaflet Map JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="asset/js/webRTC.js?v=4.7.0"></script>
+    <script src="asset/js/vad.js?v=4.7.0"></script>
+    <script src="asset/js/app.js?v=4.7.0"></script>
 </body>
 </html>
