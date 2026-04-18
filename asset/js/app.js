@@ -1,19 +1,21 @@
 // asset/js/app.js
-// 🔊 SOS SOUND ENGINE (ต้องประกาศก่อน webRTC.js โหลด)
+// 🔊 SOS SOUND ENGINE (Singleton AudioContext เพื่อแก้ปัญหามือถือบล็อกเสียง)
+let sosAudioCtx = null;
 window.playSOSAlert = function() {
+  if (!sosAudioCtx) sosAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (sosAudioCtx.state === 'suspended') {
+    sosAudioCtx.resume().catch(() => {});
+  }
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    if (ctx.state === 'suspended') ctx.resume().then(() => {
-      const osc = ctx.createOscillator(); const gain = ctx.createGain();
-      osc.connect(gain); gain.connect(ctx.destination);
-      gain.gain.setValueAtTime(0.8, ctx.currentTime);
-      osc.frequency.setValueAtTime(880, ctx.currentTime);
-      osc.frequency.setValueAtTime(440, ctx.currentTime + 0.2);
-      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.4);
-      osc.frequency.setValueAtTime(440, ctx.currentTime + 0.6);
-      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 1.0);
-      setTimeout(() => ctx.close(), 1500);
-    });
+    const osc = sosAudioCtx.createOscillator(); const gain = sosAudioCtx.createGain();
+    osc.connect(gain); gain.connect(sosAudioCtx.destination);
+    const now = sosAudioCtx.currentTime;
+    gain.gain.setValueAtTime(0.8, now);
+    osc.frequency.setValueAtTime(880, now); osc.frequency.setValueAtTime(440, now + 0.2);
+    osc.frequency.setValueAtTime(880, now + 0.4); osc.frequency.setValueAtTime(440, now + 0.6);
+    osc.start(now); osc.stop(now + 0.8);
+    // ✅ สั่นเตือนบนมือถือ (Mobile SOS Tactile Feedback)
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
   } catch(e) { console.warn('SOS Audio failed:', e); }
 };
 
@@ -82,10 +84,12 @@ function deletePreset() {
   loadPresets(); alert(`ลบ "${key}" แล้ว`);
 }
 
+// ✅ UI STATE TOGGLING (แก้ช่องกรอกค้าง / ปุ่มออกหาย)
 window.isRiding = false;
 window.toggleRide = async function() {
   const startRideBtn = document.getElementById('startRideBtn');
   const leaveBtn = document.getElementById('leaveRoomBtn');
+  const inputGroup = document.querySelector('#roomControlPanel .input-group'); // ✅ เลือกตรงจุด
   const nicknameInput = document.getElementById('nicknameInput'); const roomInput = document.getElementById('roomInput');
   
   if (!window.isRiding) {
@@ -94,8 +98,9 @@ window.toggleRide = async function() {
 
     window.isRiding = true;
     startRideBtn.style.display = 'none';
-    leaveBtn.style.display = 'flex'; // ✅ บังคับแสดงบนทุกอุปกรณ์
-    
+    if (leaveBtn) leaveBtn.style.display = 'flex';      // ✅ แสดงปุ่มออกทันที
+    if (inputGroup) inputGroup.style.display = 'none';   // ✅ ซ่อนช่องกรอกชื่อ/ห้อง
+
     const testMicBtn = document.getElementById('testMicBtn'); if (testMicBtn) testMicBtn.disabled = true;
     document.getElementById('membersPanel').style.display = 'block';
     document.getElementById('mapDiv').style.display = 'block';
@@ -109,7 +114,10 @@ window.toggleRide = async function() {
       window.ClearWayWebRTC.joinVoiceRoom(room, nick, stream);
       window.requestWakeLock(); window.initMap();
     } catch (err) {
-      console.error(err); window.isRiding = false; startRideBtn.style.display = 'flex'; leaveBtn.style.display = 'none';
+      console.error(err); window.isRiding = false;
+      startRideBtn.style.display = 'flex';
+      if (leaveBtn) leaveBtn.style.display = 'none';
+      if (inputGroup) inputGroup.style.display = 'flex';
       if (testMicBtn) testMicBtn.disabled = false;
       document.getElementById('membersPanel').style.display = 'none';
       document.getElementById('mapDiv').style.display = 'none';
@@ -124,6 +132,7 @@ window.leaveRoom = function() {
   window.isRiding = false;
   document.getElementById('startRideBtn').style.display = 'flex';
   document.getElementById('leaveRoomBtn').style.display = 'none';
+  document.querySelector('#roomControlPanel .input-group').style.display = 'flex'; // ✅ ดึงช่องกรอกกลับมา
   document.getElementById('startBtnText').innerText = 'เริ่มสนทนา';
   document.querySelector('#startRideBtn .btn-icon').innerText = '🏍️';
   
@@ -158,7 +167,7 @@ window.updateMap = function(roomState) {
 window.ClearWayUI = {
   renderMembers: (roomState, myPeerId) => {
     const list = document.getElementById('memberList'); if (!list) return;
-    list.innerHTML = ''; // ✅ ล้างก่อน Render ทุกครั้ง ป้องกันร่างซ้อน
+    list.innerHTML = '';
     Object.keys(roomState).forEach(id => {
       const user = roomState[id]; const li = document.createElement('li');
       li.className = `member-item ${user.isTalking ? 'talking' : ''} ${user.sos ? 'sos-alert' : ''}`;
@@ -195,21 +204,22 @@ document.addEventListener('DOMContentLoaded', () => {
   if (document.getElementById('savePresetBtn')) document.getElementById('savePresetBtn').addEventListener('click', savePreset);
   if (document.getElementById('deletePresetBtn')) document.getElementById('deletePresetBtn').addEventListener('click', deletePreset);
   
+  // 🔽 SOS BUTTON (มีเสียง + ส่งสัญญาณ + สั่น)
   const sosBtn = document.getElementById('sosBtnMain');
   if (sosBtn) {
     let isSOS = false;
     sosBtn.addEventListener('click', () => {
       isSOS = !isSOS;
       sosBtn.classList.toggle('active', isSOS);
-      window.playSOSAlert(); // ✅ เล่นเสียงทันทีที่กด
-      window.ClearWayWebRTC.sendSOS(isSOS); // ✅ ส่งสัญญาณไปห้อง
+      window.playSOSAlert(); // ✅ เล่นเสียงทันที (ใช้ Global Context)
+      window.ClearWayWebRTC.sendSOS(isSOS); // ✅ Broadcast ไปทุกเครื่อง
     });
   }
   
   const vadToggle = document.getElementById('vadToggle'); const vadContent = document.getElementById('vadContent'); const vadIcon = document.getElementById('vadIcon');
   if (vadToggle && vadContent && vadIcon) { vadToggle.addEventListener('click', () => { vadContent.classList.toggle('collapsed'); vadIcon.innerText = vadContent.classList.contains('collapsed') ? '▶' : '▼'; }); }
   
-  // 🔽 LONG-PRESS ENGINE 5 วินาที (Pointer Events รองรับ Mouse & Touch)
+  // 🔽 LONG-PRESS 5s ENGINE (Pointer Events รองรับ Mouse & Touch)
   const leaveBtn = document.getElementById('leaveRoomBtn');
   if (leaveBtn) {
     let pressTimer = null, progressInterval = null, pressStart = 0;
@@ -217,9 +227,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const textEl = leaveBtn.querySelector('.btn-text');
 
     const startPress = (e) => {
-      e.preventDefault();
-      pressStart = Date.now();
-      leaveBtn.classList.add('pressing');
+      e.preventDefault(); pressStart = Date.now(); leaveBtn.classList.add('pressing');
       textEl.innerText = `ค้างไว้ 5.0s`;
       pressTimer = setTimeout(() => { window.leaveRoom(); }, HOLD_MS);
       progressInterval = setInterval(() => {
