@@ -15,14 +15,12 @@ const RTC_CONFIG = {
     RTT_UNSTABLE_THRESHOLD:   0.15,   // 150ms
     PACKET_LOSS_THRESHOLD:    5,      // 5%
     
-    // [Architect Fix] เพิ่ม ICE Servers เพื่อรองรับการข้ามผ่าน Symmetric NAT (4G/5G)
     ICE_SERVERS: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
         { urls: 'stun:stun3.l.google.com:19302' },
         { urls: 'stun:stun4.l.google.com:19302' },
-        // [Critical] เพิ่ม TURN Server สำหรับเน็ตมือถือ 4G/5G (ใช้ OpenRelay เป็นค่าเริ่มต้น)
         {
             urls: 'turn:openrelay.metered.ca:443',
             username: 'openrelayproject',
@@ -53,16 +51,12 @@ let hostDataConnection    = null; // สำหรับ Guest
 let clientDataConnections = {}; // สำหรับ Host
 let roomState             = {};
 
-// [v4.7.0] New Feature: SOS & Map
 let myLocation        = { lat: 0, lng: 0 };
 let locationInterval  = null;
 
-// Bitrate + Stats Control
 let isSpeaking            = false;
 let currentBitrate        = RTC_CONFIG.BITRATE_SILENT;
 let statsInterval         = null;
-let lastTotalBytes        = 0;
-let lastStatsTime         = 0;
 
 // ─────────────────────────────────────────────
 // DOM / AUDIO SETUP
@@ -122,7 +116,7 @@ function handleActiveCall(call) {
             audio          = document.createElement('audio');
             audio.id       = `audio-${peerId}`;
             audio.autoplay = true;
-            audio.setAttribute('playsinline', ''); // สำคัญสำหรับ iOS
+            audio.setAttribute('playsinline', ''); 
             remoteAudioContainer.appendChild(audio);
         }
         audio.srcObject = remoteStream;
@@ -192,7 +186,6 @@ function joinVoiceRoom(roomId, nickname, localStream) {
 
     peer = new Peer(roomHostId, peerConfig);
 
-    // Case 1: เป็น Host (ID ว่าง)
     peer.on('open', (id) => {
         isHost = true;
         roomState[id] = { nickname: myNickname, role: 'Host', isTalking: false };
@@ -205,11 +198,8 @@ function joinVoiceRoom(roomId, nickname, localStream) {
             conn.on('open', () => {
                 const guestName = conn.metadata?.nickname || 'Unknown';
                 roomState[conn.peer] = { nickname: guestName, role: 'Member', isTalking: false };
-                
-                // [Architect Fix] ส่งรายชื่อทุกคนรวมถึง Host เองให้ Guest ใหม่ (Full Mesh)
                 const allPeers = Object.keys(roomState).filter(p => p !== conn.peer);
                 conn.send({ type: 'welcome', roomState, peersToCall: allPeers });
-                
                 broadcastRoomState();
                 updateUIList();
                 playBeep('join');
@@ -244,12 +234,10 @@ function joinVoiceRoom(roomId, nickname, localStream) {
         });
     });
 
-    // Case 2: เป็น Guest (ID ถูกใช้แล้ว)
     peer.on('error', (err) => {
         if (err.type === 'unavailable-id') {
             isHost = false;
             peer.destroy();
-            
             peer = new Peer(peerConfig);
 
             peer.on('open', (myId) => {
@@ -273,7 +261,6 @@ function joinVoiceRoom(roomId, nickname, localStream) {
                     if (data.type === 'welcome') {
                         roomState = data.roomState;
                         updateUIList();
-                        // [Architect Fix] โทรหาทุกคนที่อยู่ในห้อง (Full Mesh)
                         data.peersToCall.forEach(otherId => {
                             if (!connectedPeers[otherId]) {
                                 const call = peer.call(otherId, myStream);
@@ -303,7 +290,6 @@ function joinVoiceRoom(roomId, nickname, localStream) {
                 });
             });
 
-            // [Architect Fix] Guest ต้องรับสายจาก Guest คนอื่นที่เข้าห้องมาทีหลังด้วย
             peer.on('call', (call) => {
                 call.answer(myStream);
                 handleActiveCall(call);
@@ -335,21 +321,27 @@ function startStatsLoop() {
             await _applyBitrate(connectedPeers, currentBitrate);
         }
 
-        // 2. Network Quality Check (Sampling first peer for simplicity)
+        // 2. Network Quality Check
         const firstCall = Object.values(connectedPeers)[0];
+        console.log('startStatsLoop: firstCall', firstCall);
         if (firstCall?.peerConnection) {
             try {
                 const stats = await firstCall.peerConnection.getStats();
+                console.log('startStatsLoop: stats', stats);
                 let rtt = 0;
-                let loss = 0;
+                let packetsLost = 0;
+                let packetsSent = 0;
                 stats.forEach(report => {
-                    if (report.type === 'remote-inbound-rtp') {
-                        rtt = report.roundTripTime || 0;
-                        loss = report.packetsLost || 0;
+                    if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+                        rtt = report.currentRoundTripTime || 0;
+                    } else if (report.type === 'outbound-rtp') {
+                        packetsSent = report.packetsSent || 0;
+                    } else if (report.type === 'remote-inbound-rtp') {
+                        packetsLost = report.packetsLost || 0;
                     }
                 });
-                         try {
-                const rtt = stats.get('rtt');
+                const loss = packetsSent > 0 ? (packetsLost / packetsSent) * 100 : 0;
+
                 const pingEl = document.getElementById('pingValue');
                 const bitrateEl = document.getElementById('bitrateValue');
                 const qualityIcon = document.getElementById('qualityIcon');
@@ -365,11 +357,11 @@ function startStatsLoop() {
                 }
 
                 if (qualityIcon && qualityValue) {
-                    if (rtt < 0.1) {
+                    if (rtt < 0.1 && loss < RTC_CONFIG.PACKET_LOSS_THRESHOLD) {
                         qualityIcon.innerText = '🟢';
                         qualityValue.innerText = 'ยอดเยี่ยม';
                         qualityValue.className = 'net-value good';
-                    } else if (rtt < 0.25) {
+                    } else if (rtt < 0.25 && loss < RTC_CONFIG.PACKET_LOSS_THRESHOLD * 2) {
                         qualityIcon.innerText = '🟡';
                         qualityValue.innerText = 'พอใช้';
                         qualityValue.className = 'net-value warn';
@@ -379,11 +371,10 @@ function startStatsLoop() {
                         qualityValue.className = 'net-value bad';
                     }
                 }
-            } catch(e) {}{}
+            } catch(e) { console.error('Error getting peer connection stats:', e); }
         }
     }, RTC_CONFIG.STATS_INTERVAL_MS);
 
-    // [v4.7.0] Location Broadcast
     if (locationInterval) clearInterval(locationInterval);
     locationInterval = setInterval(() => {
         if (navigator.geolocation) {
@@ -416,10 +407,6 @@ function sendSOS(isActive) {
     }
 }
 
-// ─────────────────────────────────────────────
-// UTILS & CLEANUP
-// ─────────────────────────────────────────────
-
 function broadcastRoomState() {
     if (!isHost) return;
     Object.values(clientDataConnections).forEach(conn => {
@@ -430,10 +417,8 @@ function broadcastRoomState() {
 function broadcastMicStatus(isActive) {
     if (!peer || !roomState[peer.id]) return;
     isSpeaking = isActive;
-    
     roomState[peer.id].isTalking = isActive;
     updateUIList();
-
     if (isHost) {
         broadcastRoomState();
     } else if (hostDataConnection && hostDataConnection.open) {
@@ -446,16 +431,6 @@ function updateUIList() {
         window.ClearWayUI.renderMembers(roomState, peer ? peer.id : null);
     }
 }
-
-// ─────────────────────────────────────────────
-// EXPORTED API
-// ─────────────────────────────────────────────
-window.ClearWayWebRTC = {
-    joinVoiceRoom,
-    leaveVoiceRoom,
-    broadcastMicStatus,
-    sendSOS
-};
 
 function attemptReconnect() {
     if (isLeaving) return;
@@ -474,9 +449,7 @@ function leaveVoiceRoom() {
     } else if (hostDataConnection && hostDataConnection.open) {
         hostDataConnection.send({ type: 'leave' });
     }
-
     if (statsInterval) clearInterval(statsInterval);
-    
     setTimeout(() => {
         if (peer) peer.destroy();
         peer = null;
