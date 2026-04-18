@@ -1,6 +1,6 @@
-// sw.js - Service Worker v4.6 (Auto-Update Edition)
+// sw.js - Service Worker v4.6.6 (Architect Ultimate Edition)
 
-const CACHE_NAME = 'triptalk-v4.6-architect'; // เปลี่ยนเลขตรงนี้ทุกครั้งที่อัปเดตใหม่
+const CACHE_NAME = 'triptalk-v4.6.6-ultimate'; 
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -10,24 +10,25 @@ const ASSETS_TO_CACHE = [
   './asset/js/vad.js',
   './asset/js/webRTC.js',
   './asset/img/icon-192.png',
-  './asset/img/icon-512.png'
+  './asset/img/icon-512.png',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+  'https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js'
 ];
 
-// 1. Install: เก็บไฟล์ลงแคช
+// [ARCHITECT บัคข้อ 1: Zombie SW Fix] บังคับให้ตัวใหม่ "เตะ" ตัวเก่าออกทันที
 self.addEventListener('install', (event) => {
-  console.log('[SW] Installing new version:', CACHE_NAME);
+  console.log('[SW] Installing v4.6.6...');
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(ASSETS_TO_CACHE);
     })
   );
-  // บังคับให้ SW ตัวใหม่ทำงานทันที ไม่ต้องรอปิด Browser (Skip Waiting)
-  self.skipWaiting();
+  self.skipWaiting(); // บังคับให้ Activate ทันที ไม่ต้องรอปิด Tab
 });
 
-// 2. Activate: ล้างแคชเก่าทิ้งทั้งหมด (สำคัญมาก!)
 self.addEventListener('activate', (event) => {
-  console.log('[SW] Activating and cleaning old caches...');
+  console.log('[SW] Activating v4.6.6...');
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
@@ -39,18 +40,15 @@ self.addEventListener('activate', (event) => {
         })
       );
     }).then(() => {
-      // ให้ SW เข้าควบคุม Client ทั้งหมดทันที
-      return self.clients.claim();
+      return self.clients.claim(); // บังคับให้ควบคุมทุก Tab ทันที
     })
   );
 });
 
-// 3. Fetch: ดึงไฟล์จากแคช (Network First Strategy สำหรับไฟล์หลัก)
 self.addEventListener('fetch', (event) => {
+  // ข้ามการ Cache สำหรับ API หรือ URL ภายนอกที่ไม่ใช่ HTTP(S)
   if (!event.request.url.startsWith('http')) return;
   
-  // สำหรับไฟล์ HTML/JS/CSS หลัก เราจะพยายามโหลดจากเน็ตก่อน (Network First) 
-  // เพื่อให้ได้ของใหม่เสมอ ถ้าไม่มีเน็ตค่อยดึงจากแคช
   event.respondWith(
     fetch(event.request).catch(() => {
       return caches.match(event.request);
