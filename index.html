@@ -26,21 +26,9 @@
     </div>
 
     <div class="network-status-panel" id="networkStatusPanel" style="display:none;">
-      <div class="net-stat">
-        <span class="net-icon">📶</span>
-        <span class="net-label">Ping</span>
-        <span class="net-value" id="pingValue">-- ms</span>
-      </div>
-      <div class="net-stat">
-        <span class="net-icon">🎧</span>
-        <span class="net-label">Bitrate</span>
-        <span class="net-value" id="bitrateValue">-- kbps</span>
-      </div>
-      <div class="net-stat">
-        <span class="net-icon" id="qualityIcon">🟢</span>
-        <span class="net-label">Status</span>
-        <span class="net-value" id="qualityValue">--</span>
-      </div>
+      <div class="net-stat"><span class="net-icon">📶</span><span class="net-label">Ping</span><span class="net-value" id="pingValue">-- ms</span></div>
+      <div class="net-stat"><span class="net-icon">🎧</span><span class="net-label">Bitrate</span><span class="net-value" id="bitrateValue">-- kbps</span></div>
+      <div class="net-stat"><span class="net-icon" id="qualityIcon">🟢</span><span class="net-label">Status</span><span class="net-value" id="qualityValue">--</span></div>
     </div>
 
     <div class="control-panel" id="roomControlPanel">
@@ -52,6 +40,7 @@
         <span class="btn-icon">🏍️</span>
         <span id="startBtnText">เริ่มสนทนา</span>
       </button>
+      <!-- เพิ่มปุ่มออกห้องแยกชัดเจน -->
       <button class="btn-danger-outline" id="leaveRoomBtn" style="display:none;">
         <span class="btn-icon">🚪</span>
         <span class="btn-text">ออกจากห้อง</span>
@@ -100,41 +89,10 @@
         </div>
         <hr class="divider">
 
-        <div class="setting-item">
-          <div class="setting-label">
-            <span>ความไวไมค์ (Threshold)</span>
-            <span class="setting-value" id="thresholdVal">50%</span>
-          </div>
-          <input type="range" id="thresholdSlider" min="0" max="100" step="1" value="50">
-          <p class="hint">เลื่อนให้เส้นขาวหนีเสียงรบกวนพื้นหลัง</p>
-        </div>
-
-        <div class="setting-item">
-          <div class="setting-label">
-            <span>หน่วงเวลาปิดไมค์ (Hold)</span>
-            <span class="setting-value" id="holdTimeVal">1.5s</span>
-          </div>
-          <input type="range" id="holdTimeSlider" min="400" max="3000" step="100" value="1500">
-          <p class="hint">ป้องกันไมค์ตัดเวลาเว้นวรรคหายใจ</p>
-        </div>
-
-        <div class="setting-item">
-          <div class="setting-label">
-            <span>ตัดเสียงลม (Wind Filter)</span>
-            <span class="setting-value" id="highpassVal">100 Hz</span>
-          </div>
-          <input type="range" id="highpassSlider" min="50" max="500" step="10" value="100">
-          <p class="hint">ค่าสูง = ตัดเสียงรบกวนมากขึ้น (เสียงลม/เครื่องยนต์)</p>
-        </div>
-
-        <div class="setting-item">
-          <div class="setting-label">
-            <span>เพิ่มเสียงพูด (Voice Boost)</span>
-            <span class="setting-value" id="gainVal">1.4x</span>
-          </div>
-          <input type="range" id="gainSlider" min="10" max="22" step="1" value="14">
-          <p class="hint">เพิ่มความดังเสียงพูด (ไม่ควรเกิน 1.8x)</p>
-        </div>
+        <div class="setting-item"><div class="setting-label"><span>ความไวไมค์ (Threshold)</span><span class="setting-value" id="thresholdVal">50%</span></div><input type="range" id="thresholdSlider" min="0" max="100" step="1" value="50"><p class="hint">เลื่อนให้เส้นขาวหนีเสียงรบกวนพื้นหลัง</p></div>
+        <div class="setting-item"><div class="setting-label"><span>หน่วงเวลาปิดไมค์ (Hold)</span><span class="setting-value" id="holdTimeVal">1.5s</span></div><input type="range" id="holdTimeSlider" min="400" max="3000" step="100" value="1500"><p class="hint">ป้องกันไมค์ตัดเวลาเว้นวรรคหายใจ</p></div>
+        <div class="setting-item"><div class="setting-label"><span>ตัดเสียงลม (Wind Filter)</span><span class="setting-value" id="highpassVal">100 Hz</span></div><input type="range" id="highpassSlider" min="50" max="500" step="10" value="100"><p class="hint">ค่าสูง = ตัดเสียงรบกวนมากขึ้น (เสียงลม/เครื่องยนต์)</p></div>
+        <div class="setting-item"><div class="setting-label"><span>เพิ่มเสียงพูด (Voice Boost)</span><span class="setting-value" id="gainVal">1.4x</span></div><input type="range" id="gainSlider" min="10" max="22" step="1" value="14"><p class="hint">เพิ่มความดังเสียงพูด (ไม่ควรเกิน 1.8x)</p></div>
       </div>
     </div>
   </div>
