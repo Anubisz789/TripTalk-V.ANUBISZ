@@ -486,3 +486,7 @@ input[type=range] {
 .net-value.good { color: #4caf50; }
 .net-value.warn { color: #ffeb3b; }
 .net-value.bad { color: #f44336; }
+
+.net-icon {
+    font-size: 1.2rem;
+}
