@@ -1,22 +1,34 @@
 // asset/js/app.js
 // 🔊 SOS SOUND ENGINE (Singleton AudioContext เพื่อแก้ปัญหามือถือบล็อกเสียง)
 let sosAudioCtx = null;
-window.playSOSAlert = function() {
-  if (!sosAudioCtx) sosAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (sosAudioCtx.state === 'suspended') {
-    sosAudioCtx.resume().catch(() => {});
+let sosInterval = null;
+window.playSOSAlert = function(isActive) {
+  if (!isActive) {
+    if (sosInterval) { clearInterval(sosInterval); sosInterval = null; }
+    return;
   }
-  try {
-    const osc = sosAudioCtx.createOscillator(); const gain = sosAudioCtx.createGain();
-    osc.connect(gain); gain.connect(sosAudioCtx.destination);
-    const now = sosAudioCtx.currentTime;
-    gain.gain.setValueAtTime(0.8, now);
-    osc.frequency.setValueAtTime(880, now); osc.frequency.setValueAtTime(440, now + 0.2);
-    osc.frequency.setValueAtTime(880, now + 0.4); osc.frequency.setValueAtTime(440, now + 0.6);
-    osc.start(now); osc.stop(now + 0.8);
-    // ✅ สั่นเตือนบนมือถือ (Mobile SOS Tactile Feedback)
-    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-  } catch(e) { console.warn('SOS Audio failed:', e); }
+  if (sosInterval) return; // ทำงานอยู่แล้วไม่ต้องเริ่มใหม่
+
+  if (!sosAudioCtx) sosAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (sosAudioCtx.state === 'suspended') sosAudioCtx.resume().catch(() => {});
+
+  const triggerSound = () => {
+    try {
+      const osc = sosAudioCtx.createOscillator(); const gain = sosAudioCtx.createGain();
+      osc.connect(gain); gain.connect(sosAudioCtx.destination);
+      const now = sosAudioCtx.currentTime;
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.8, now + 0.1);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.9);
+      osc.frequency.setValueAtTime(880, now); 
+      osc.frequency.exponentialRampToValueAtTime(440, now + 0.5);
+      osc.start(now); osc.stop(now + 1.0);
+      if (navigator.vibrate) navigator.vibrate([300, 100, 300]);
+    } catch(e) { console.warn('SOS Audio loop failed:', e); }
+  };
+
+  triggerSound();
+  sosInterval = setInterval(triggerSound, 1200); // วนลูปเสียงทุก 1.2 วินาที
 };
 
 if ('serviceWorker' in navigator) {
@@ -210,16 +222,49 @@ document.addEventListener('DOMContentLoaded', () => {
   if (document.getElementById('savePresetBtn')) document.getElementById('savePresetBtn').addEventListener('click', savePreset);
   if (document.getElementById('deletePresetBtn')) document.getElementById('deletePresetBtn').addEventListener('click', deletePreset);
   
-  // 🔽 SOS BUTTON (มีเสียง + ส่งสัญญาณ + สั่น)
+  // 🔽 SOS BUTTON (กดค้าง 15 วิ เพื่อเริ่ม/ยกเลิก)
   const sosBtn = document.getElementById('sosBtnMain');
   if (sosBtn) {
     let isSOS = false;
-    sosBtn.addEventListener('click', () => {
-      isSOS = !isSOS;
-      sosBtn.classList.toggle('active', isSOS);
-      window.playSOSAlert(); // ✅ เล่นเสียงทันที (ใช้ Global Context)
-      window.ClearWayWebRTC.sendSOS(isSOS); // ✅ Broadcast ไปทุกเครื่อง
-    });
+    let sosHoldTimer = null;
+    let sosProgressInterval = null;
+    const SOS_HOLD_MS = 15000; // 15 วินาที
+
+    const startSOSPress = (e) => {
+      e.preventDefault();
+      const startTime = Date.now();
+      sosBtn.classList.add('pressing');
+      
+      sosHoldTimer = setTimeout(() => {
+        isSOS = !isSOS;
+        sosBtn.classList.toggle('active', isSOS);
+        sosBtn.innerText = isSOS ? 'ยกเลิก SOS' : '🆘 SOS';
+        window.playSOSAlert(isSOS); 
+        window.ClearWayWebRTC.sendSOS(isSOS); 
+        cancelSOSPress(); // รีเซ็ตสถานะการกด
+      }, SOS_HOLD_MS);
+
+      sosProgressInterval = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        const remain = Math.max(0, (SOS_HOLD_MS - elapsed) / 1000).toFixed(1);
+        sosBtn.innerText = `${isSOS ? 'ยกเลิก' : 'เริ่ม'}ใน ${remain}s`;
+        const progress = elapsed / SOS_HOLD_MS;
+        sosBtn.style.background = isSOS ? `rgba(255,255,255,${progress})` : `rgba(244, 67, 54, ${0.4 + progress * 0.6})`;
+      }, 100);
+    };
+
+    const cancelSOSPress = () => {
+      clearTimeout(sosHoldTimer);
+      clearInterval(sosProgressInterval);
+      sosBtn.classList.remove('pressing');
+      sosBtn.style.background = '';
+      sosBtn.innerText = isSOS ? 'ยกเลิก SOS' : '🆘 SOS';
+    };
+
+    sosBtn.addEventListener('pointerdown', startSOSPress);
+    sosBtn.addEventListener('pointerup', cancelSOSPress);
+    sosBtn.addEventListener('pointercancel', cancelSOSPress);
+    sosBtn.addEventListener('pointerleave', cancelSOSPress);
   }
   
   const vadToggle = document.getElementById('vadToggle'); const vadContent = document.getElementById('vadContent'); const vadIcon = document.getElementById('vadIcon');
