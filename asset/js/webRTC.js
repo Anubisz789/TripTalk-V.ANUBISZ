@@ -1,15 +1,9 @@
 // asset/js/webRTC.js
 
 // ─────────────────────────────────────────────
-// CONFIG — Technical Architect Refactor (v4.4 Ultimate)
+// CONFIG — Technical Architect Refactor (v4.5 Final Fix)
 // ─────────────────────────────────────────────
 const RTC_CONFIG = {
-    BITRATE_SPEAKING:         28000,  // bps
-    BITRATE_SILENT:           8000,   // bps
-    STATS_INTERVAL_MS:        2000,
-    RECONNECT_DELAY_MS:       3000,
-    CONN_TIMEOUT_MS:          15000,
-    
     ICE_SERVERS: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
@@ -19,37 +13,37 @@ const RTC_CONFIG = {
             credential: 'openrelayproject'
         }
     ],
+    ICE_TRANSPORT_POLICY: 'all',
+    ICE_CANDIDATE_POOL_SIZE: 10,
+    RECONNECT_DELAY_MS: 3000
 };
 
 // ─────────────────────────────────────────────
 // STATE MANAGEMENT
 // ─────────────────────────────────────────────
-let peer                  = null;
-let connectedCalls        = {}; // { peerId: MediaConnection }
-let dataConnections       = {}; // { peerId: DataConnection }
-let myStream              = null;
-let myNickname            = '';
-let isHost                = false;
-let roomHostId            = '';
-let currentRoomId         = '';
-let isLeaving             = false;
-let roomState             = {}; // { peerId: { nickname, role, isTalking, lat, lng, isSOS } }
+let peer = null;
+let myStream = null;
+let myNickname = '';
+let isHost = false;
+let roomHostId = '';
+let roomState = {}; // { peerId: { nickname, role, isTalking, lat, lng, isSOS } }
+let connections = {}; // { peerId: DataConnection }
+let calls = {}; // { peerId: MediaCall }
 
 // ─────────────────────────────────────────────
 // CORE WEBRTC LOGIC
 // ─────────────────────────────────────────────
 
 function setupDataHandlers(conn) {
-    dataConnections[conn.peer] = conn;
+    connections[conn.peer] = conn;
     
     conn.on('open', () => {
-        console.log('[WebRTC] Data connection open with:', conn.peer);
+        console.log('[WebRTC] Data channel open with:', conn.peer);
         if (isHost) {
-            // Host sends welcome to new guest
             const guestName = conn.metadata?.nickname || 'Unknown Member';
             roomState[conn.peer] = { nickname: guestName, role: 'Member', isTalking: false };
             
-            // Full Mesh: Host gives the list of ALL peers to the new guest
+            // Full Mesh: Host tells the new guest who else is in the room
             const peersToCall = Object.keys(roomState).filter(p => p !== conn.peer);
             conn.send({ type: 'welcome', roomState, peersToCall });
             broadcastRoomState();
@@ -63,7 +57,7 @@ function setupDataHandlers(conn) {
             updateUIList();
             // Guest calls everyone else in the room
             data.peersToCall.forEach(pid => {
-                if (!connectedCalls[pid] && pid !== peer.id) {
+                if (!calls[pid] && pid !== peer.id) {
                     initiateCall(pid);
                 }
             });
@@ -93,11 +87,13 @@ function setupDataHandlers(conn) {
     });
 
     conn.on('close', () => handlePeerLeave(conn.peer));
+    conn.on('error', () => handlePeerLeave(conn.peer));
 }
 
 function handleActiveCall(call) {
-    connectedCalls[call.peer] = call;
+    calls[call.peer] = call;
     call.on('stream', (remoteStream) => {
+        console.log('[WebRTC] Received stream from:', call.peer);
         let audio = document.getElementById(`audio-${call.peer}`);
         if (!audio) {
             audio = document.createElement('audio');
@@ -107,14 +103,25 @@ function handleActiveCall(call) {
             document.getElementById('remoteAudios').appendChild(audio);
         }
         audio.srcObject = remoteStream;
-        audio.play().catch(e => console.warn("Autoplay blocked:", e));
+        
+        // Force play for mobile browsers
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+            playPromise.catch(error => {
+                console.warn("[WebRTC] Autoplay blocked, waiting for interaction:", error);
+                // We'll retry playing on next user click via app.js
+            });
+        }
     });
     call.on('close', () => handlePeerLeave(call.peer));
+    call.on('error', () => handlePeerLeave(call.peer));
 }
 
 function initiateCall(targetPeerId) {
+    if (targetPeerId === peer.id) return;
     console.log('[WebRTC] Initiating call to:', targetPeerId);
-    // 1. Data Connection (for Location/SOS)
+    
+    // 1. Data Connection
     const conn = peer.connect(targetPeerId, { 
         metadata: { nickname: myNickname },
         reliable: true 
@@ -128,9 +135,10 @@ function initiateCall(targetPeerId) {
 
 function handlePeerLeave(peerId) {
     if (!peerId) return;
+    console.log('[WebRTC] Peer left:', peerId);
     delete roomState[peerId];
-    delete dataConnections[peerId];
-    delete connectedCalls[peerId];
+    delete connections[peerId];
+    delete calls[peerId];
     const audio = document.getElementById(`audio-${peerId}`);
     if (audio) audio.remove();
     updateUIList();
@@ -144,15 +152,15 @@ window.ClearWayWebRTC = {
     joinVoiceRoom(roomId, nickname, localStream) {
         myStream = localStream;
         myNickname = nickname;
-        currentRoomId = roomId;
         roomHostId = `triptalk-room-${roomId}`;
         
         const peerConfig = {
             config: { 
                 iceServers: RTC_CONFIG.ICE_SERVERS,
-                iceTransportPolicy: 'all',
-                iceCandidatePoolSize: 10
-            }
+                iceTransportPolicy: RTC_CONFIG.ICE_TRANSPORT_POLICY,
+                iceCandidatePoolSize: RTC_CONFIG.ICE_CANDIDATE_POOL_SIZE
+            },
+            debug: 1
         };
 
         // Try to be Host
@@ -166,6 +174,7 @@ window.ClearWayWebRTC = {
             
             peer.on('connection', setupDataHandlers);
             peer.on('call', (call) => {
+                console.log('[WebRTC] Incoming call as Host from:', call.peer);
                 call.answer(myStream);
                 handleActiveCall(call);
             });
@@ -182,19 +191,23 @@ window.ClearWayWebRTC = {
                     initiateCall(roomHostId);
                 });
                 peer.on('call', (call) => {
+                    console.log('[WebRTC] Incoming call as Guest from:', call.peer);
                     call.answer(myStream);
                     handleActiveCall(call);
                 });
                 peer.on('connection', setupDataHandlers);
+            } else {
+                console.error('[WebRTC] Peer Error:', err);
             }
         });
     },
 
     leaveVoiceRoom() {
-        isLeaving = true;
         if (peer) peer.destroy();
         document.getElementById('remoteAudios').innerHTML = '';
         roomState = {};
+        connections = {};
+        calls = {};
     },
 
     updateMyTalkingState(isActive) {
@@ -209,6 +222,9 @@ window.ClearWayWebRTC = {
         roomState[peer.id].lat = lat;
         roomState[peer.id].lng = lng;
         broadcastToAll({ type: 'location', lat, lng });
+        if (window.ClearWayUI && window.ClearWayUI.updateMap) {
+            window.ClearWayUI.updateMap(roomState);
+        }
     },
 
     sendSOS(active) {
@@ -220,7 +236,7 @@ window.ClearWayWebRTC = {
 };
 
 function broadcastToAll(data) {
-    Object.values(dataConnections).forEach(conn => {
+    Object.values(connections).forEach(conn => {
         if (conn.open) conn.send(data);
     });
 }
