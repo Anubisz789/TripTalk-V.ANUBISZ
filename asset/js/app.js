@@ -1,7 +1,7 @@
 // asset/js/app.js
 
 // ─────────────────────────────────────────────
-// [ARCHITECT v4.4] MAP & LOCATION LOGIC
+// [ARCHITECT v4.5] MAP & LOCATION LOGIC
 // ─────────────────────────────────────────────
 let map = null;
 let markers = {}; // { peerId: Marker }
@@ -10,20 +10,30 @@ let lastLocationSent = 0;
 
 function initMap() {
     if (map) return;
-    map = L.map('map').setView([13.7367, 100.5231], 13); // Default to Bangkok
+    console.log('[Map] Initializing Map...');
+    map = L.map('map').setView([13.7367, 100.5231], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
+    
+    // Resize map to fit container
+    setTimeout(() => map.invalidateSize(), 500);
 }
 
 function updateMapMarkers(roomState) {
-    if (!map) initMap();
+    if (!map) return; // Wait for initMap
     
     Object.keys(roomState).forEach(peerId => {
         const user = roomState[peerId];
         if (user.lat && user.lng) {
             if (!markers[peerId]) {
-                markers[peerId] = L.marker([user.lat, user.lng]).addTo(map)
+                const icon = L.divIcon({
+                    className: 'custom-div-icon',
+                    html: `<div style='background-color:${user.isSOS ? "#f44336" : "#4caf50"};' class='marker-pin'></div><span class='marker-label'>${user.nickname}</span>`,
+                    iconSize: [30, 42],
+                    iconAnchor: [15, 42]
+                });
+                markers[peerId] = L.marker([user.lat, user.lng], { icon }).addTo(map)
                     .bindPopup(user.nickname + (user.isSOS ? ' 🚨 SOS!' : ''));
             } else {
                 markers[peerId].setLatLng([user.lat, user.lng]);
@@ -35,15 +45,21 @@ function updateMapMarkers(roomState) {
 
 function startLocationSharing() {
     if ("geolocation" in navigator) {
+        console.log('[Location] Requesting GPS permission...');
         locationWatchId = navigator.geolocation.watchPosition(
             (pos) => {
                 const { latitude, longitude } = pos.coords;
                 const now = Date.now();
-                // ประหยัดแบต: ส่งพิกัดทุกๆ 10 วินาทีเท่านั้น (หรือถ้าขยับมากพอ)
-                if (now - lastLocationSent > 10000) {
+                // Send location immediately on first fix, then every 10s
+                if (now - lastLocationSent > 10000 || lastLocationSent === 0) {
                     window.ClearWayWebRTC.sendLocation(latitude, longitude);
                     lastLocationSent = now;
-                    document.getElementById('locationStatus').innerText = 'กำลังแชร์พิกัด 🟢';
+                    document.getElementById('locationStatus').innerText = 'แชร์พิกัดอยู่ 🟢';
+                    
+                    // Center map on ME for the first time
+                    if (lastLocationSent === now && map) {
+                        map.setView([latitude, longitude], 15);
+                    }
                 }
             },
             (err) => {
@@ -58,10 +74,11 @@ function startLocationSharing() {
 function stopLocationSharing() {
     if (locationWatchId) navigator.geolocation.clearWatch(locationWatchId);
     locationWatchId = null;
+    lastLocationSent = 0;
 }
 
 // ─────────────────────────────────────────────
-// [ARCHITECT v4.4] SOS SYSTEM
+// [ARCHITECT v4.5] AUDIO & SOS SYSTEM
 // ─────────────────────────────────────────────
 let isSOSActive = false;
 const sosBtn = document.getElementById('sosBtn');
@@ -72,22 +89,58 @@ if (sosBtn) {
         sosBtn.classList.toggle('active', isSOSActive);
         window.ClearWayWebRTC.sendSOS(isSOSActive);
         
+        // Force resume audio context on click (Mobile Unlock)
+        forceResumeAudio();
+        
         if (isSOSActive) {
-            // สั่นเครื่อง (ถ้ามือถือรองรับ)
             if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
             alert('ส่งสัญญาณ SOS ถึงทุกคนในกลุ่มแล้ว! 🚨');
         }
     });
 }
 
+function forceResumeAudio() {
+    // Attempt to resume all audio elements and context
+    const audios = document.querySelectorAll('audio');
+    audios.forEach(a => a.play().catch(() => {}));
+    
+    if (window.audioContext && window.audioContext.state === 'suspended') {
+        window.audioContext.resume();
+    }
+}
+
 // ─────────────────────────────────────────────
 // SERVICE WORKER & PWA
 // ─────────────────────────────────────────────
+// [ARCHITECT v4.6] SERVICE WORKER & AUTO-UPDATE LOGIC
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js', { scope: './' })
-            .then(r => console.log('SW registered'))
-            .catch(e => console.error('SW failed', e));
+            .then(reg => {
+                console.log('[SW] Registered successfully');
+                
+                // ตรวจจับเมื่อมี SW ตัวใหม่พร้อมใช้งาน (Waiting state)
+                reg.addEventListener('updatefound', () => {
+                    const newWorker = reg.installing;
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            // แจ้งเตือนผู้ใช้หรือ Reload อัตโนมัติเมื่ออัปเดตเสร็จ
+                            console.log('[SW] New version found! Reloading...');
+                            window.location.reload();
+                        }
+                    });
+                });
+            })
+            .catch(e => console.error('[SW] Registration failed:', e));
+    });
+
+    // ป้องกันการ Reload วนลูป (Infinite Reload Loop)
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!refreshing) {
+            refreshing = true;
+            window.location.reload();
+        }
     });
 }
 
@@ -152,12 +205,15 @@ async function toggleRide() {
         document.getElementById('membersPanel').style.display = 'block';
         document.getElementById('sosBtn').style.display = 'flex';
 
+        // Unlock audio context
+        forceResumeAudio();
+
         const stream = await window.startMainMic();
         if (stream) {
             window.ClearWayWebRTC.joinVoiceRoom(roomId, nickname, stream);
             requestWakeLock();
-            startLocationSharing();
             initMap();
+            startLocationSharing();
         }
     } else {
         isRiding = false;
@@ -179,6 +235,7 @@ async function toggleRide() {
 window.ClearWayUI = {
     renderMembers(roomState, myId) {
         const list = document.getElementById('memberList');
+        if (!list) return;
         list.innerHTML = '';
         Object.keys(roomState).forEach(id => {
             const user = roomState[id];
@@ -198,7 +255,7 @@ window.ClearWayUI = {
     onSOS(peerId, nickname, active) {
         if (active) {
             if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-            // Play alert sound if needed
+            forceResumeAudio(); // Try to play audio when SOS received
         }
     },
     updateMap: updateMapMarkers
@@ -212,11 +269,16 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Populate presets
     const sel = document.getElementById('presetSelector');
-    Object.entries(PRESET_DEFINITIONS).forEach(([k, v]) => {
-        const opt = document.createElement('option');
-        opt.value = k; opt.innerText = v.label;
-        sel.appendChild(opt);
-    });
-    sel.addEventListener('change', (e) => applyPreset(e.target.value));
-    applyPreset('touring');
+    if (sel) {
+        Object.entries(PRESET_DEFINITIONS).forEach(([k, v]) => {
+            const opt = document.createElement('option');
+            opt.value = k; opt.innerText = v.label;
+            sel.appendChild(opt);
+        });
+        sel.addEventListener('change', (e) => applyPreset(e.target.value));
+        applyPreset('touring');
+    }
+
+    // Global click listener to unlock audio
+    document.addEventListener('click', forceResumeAudio, { once: false });
 });
