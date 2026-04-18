@@ -63,21 +63,36 @@ function _cleanupPeerAudio(peerId) {
 // 🔽 แก้ไข: Host Transfer Logic (ลบร่างซ้อน)
 function handlePeerLeave(peerId) {
   if (!peerId) return;
+  
+  // ล้างการเชื่อมต่อและเสียง
   if (clientDataConnections[peerId]) { clientDataConnections[peerId].close(); delete clientDataConnections[peerId]; }
   if (connectedPeers[peerId]) { connectedPeers[peerId].close(); delete connectedPeers[peerId]; }
+  if (hostDataConnection && hostDataConnection.peer === peerId) { hostDataConnection.close(); hostDataConnection = null; }
   _cleanupPeerAudio(peerId);
   
-  // ✅ ลบ State ทันที ก่อน Broadcast
-  if (roomState[peerId]) { delete roomState[peerId]; playBeep('leave'); }
-  
-  // ✅ ถ้า Host ออก ให้ย้ายตำแหน่งทันที
-  if (peerId === peer?.id && isHost) {
-    const remainingPeers = Object.keys(roomState);
-    if (remainingPeers.length > 0) {
-      const newHostId = remainingPeers[0];
-      roomState[newHostId].role = 'Host';
-      // ✅ ส่งสถานะใหม่ให้ทุกคนเห็นตรงกัน
-      broadcastRoomState();
+  // ลบสถานะออกจากห้อง
+  if (roomState[peerId]) {
+    delete roomState[peerId];
+    playBeep('leave');
+  }
+
+  // กรณีเราเป็น Host แล้วคนอื่นออก: ต้องแจ้งทุกคนที่เหลือ
+  if (isHost) {
+    broadcastRoomState();
+  } 
+  // กรณี Host ออก (peerId คือ roomHostId): ต้องมีการเลือก Host ใหม่ในฝั่ง Client
+    else if (peerId === roomHostId) {
+    const remainingIds = Object.keys(roomState).sort();
+    if (remainingIds.length > 0) {
+      const newHostId = remainingIds[0];
+      if (newHostId === peer.id) {
+        console.log("Taking over as new Host");
+        isHost = true;
+        roomState[peer.id].role = 'Host';
+        updateConnectionStatus('🟢 คุณคือหัวหน้าทริปคนใหม่', 'active');
+        // แจ้งทุกคนที่เหลือว่าเราคือ Host ใหม่
+        broadcastRoomState();
+      }
     }
   }
   
@@ -109,7 +124,12 @@ function joinVoiceRoom(roomId, nickname, localStream) {
           if (roomState[conn.peer]) roomState[conn.peer].sos = data.isActive; 
           broadcastRoomState(); updateUIList(); 
           if (data.isActive && typeof window.playSOSAlert === 'function') window.playSOSAlert();
-          if (isHost) Object.values(clientDataConnections).forEach(c => { if (c.open && c.peer !== conn.peer) c.send({ type: 'sos-alert' }); });
+          if (isHost) {
+            // กระจาย SOS Alert ให้ทุกคน (ยกเว้นคนส่งมา เพราะเขาเล่นเสียงเองแล้ว)
+            Object.values(clientDataConnections).forEach(c => { 
+              if (c.open && c.peer !== conn.peer) c.send({ type: 'sos-alert', from: conn.peer, isActive: data.isActive }); 
+            });
+          }
         }
       });
       conn.on('close', () => handlePeerLeave(conn.peer)); conn.on('error', () => handlePeerLeave(conn.peer));
@@ -186,11 +206,30 @@ function startStatsLoop() {
 
 function sendSOS(isActive) {
   const data = { type: 'sos', isActive };
+  
+  // เล่นเสียงที่เครื่องตัวเองทันทีไม่ว่าเป็น Host หรือ Member
+  if (isActive && typeof window.playSOSAlert === 'function') {
+    window.playSOSAlert();
+  }
+
   if (isHost) { 
     if (peer && roomState[peer.id]) roomState[peer.id].sos = isActive; 
     broadcastRoomState(); 
-    Object.values(clientDataConnections).forEach(conn => { if (conn.open) conn.send({ type: 'sos-alert' }); });
-  } else if (hostDataConnection?.open) hostDataConnection.send(data);
+    // ส่ง alert ให้ลูกข่ายทุกคน
+    Object.values(clientDataConnections).forEach(conn => { 
+      if (conn.open) conn.send({ type: 'sos-alert', from: peer.id, isActive }); 
+    });
+  } else {
+    // ถ้าเป็น Member ส่งให้ Host เพื่อให้ Host กระจายต่อ
+    if (hostDataConnection?.open) {
+      hostDataConnection.send(data);
+    }
+    // อัปเดตสถานะตัวเองในเครื่องตัวเองด้วย
+    if (peer && roomState[peer.id]) {
+      roomState[peer.id].sos = isActive;
+      updateUIList();
+    }
+  }
 }
 
 function broadcastRoomState() { if (!isHost) return; Object.values(clientDataConnections).forEach(conn => { if (conn.open) conn.send({ type: 'update-state', roomState }); }); }
