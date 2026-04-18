@@ -16,6 +16,23 @@ window.wakeLock = null;
 window.requestWakeLock = async function() { try { if ('wakeLock' in navigator) window.wakeLock = await navigator.wakeLock.request('screen'); } catch (err) { console.error(err); } };
 window.releaseWakeLock = function() { if (window.wakeLock) { window.wakeLock.release(); window.wakeLock = null; } };
 
+// 🔊 SOS ALERT SOUND ENGINE (Web Audio API, Cross-Platform)
+window.playSOSAlert = function() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === 'suspended') ctx.resume();
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    gain.gain.setValueAtTime(0.8, ctx.currentTime);
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(440, ctx.currentTime + 0.2);
+    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.4);
+    osc.frequency.setValueAtTime(440, ctx.currentTime + 0.6);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 1.0);
+    setTimeout(() => ctx.close(), 1500);
+  } catch(e) { console.warn('SOS Audio failed:', e); }
+};
+
 const PRESETS = {
   city: { name: '🏙️ ในเมือง', hp: 100, gain: 14, threshold: 50, hold: 1200 },
   road: { name: '🛣️ ทริประยะไกล', hp: 250, gain: 18, threshold: 40, hold: 1500 },
@@ -67,47 +84,44 @@ function deletePreset() {
 
 window.isRiding = false;
 window.toggleRide = async function() {
-  const startRideBtn = document.getElementById('startRideBtn'); const startBtnText = document.getElementById('startBtnText');
-  const nicknameInput = document.getElementById('nicknameInput'); const roomInput = document.getElementById('roomInput');
+  const startRideBtn = document.getElementById('startRideBtn');
+  const leaveBtn = document.getElementById('leaveRoomBtn');
+  const nicknameInput = document.getElementById('nicknameInput');
+  const roomInput = document.getElementById('roomInput');
+  
   if (!window.isRiding) {
     const nick = nicknameInput.value.trim(); const room = roomInput.value.trim();
     if (!nick || !room) return alert('กรุณาใส่ชื่อและรหัสทริป');
-    window.isRiding = true; startRideBtn.style.display = 'none'; 
-    document.getElementById('leaveRoomBtn').style.display = 'flex';
+
+    window.isRiding = true;
+    startRideBtn.style.display = 'none';
+    leaveBtn.style.display = 'flex'; // ✅ แก้ไข: แสดงปุ่มออกห้อง
     
     const testMicBtn = document.getElementById('testMicBtn'); if (testMicBtn) testMicBtn.disabled = true;
-    const roomPanel = document.getElementById('roomControlPanel'); if (roomPanel) roomPanel.style.display = 'block';
-    const memPanel = document.getElementById('membersPanel'); if (memPanel) memPanel.style.display = 'block';
-    const mapDiv = document.getElementById('mapDiv'); if (mapDiv) mapDiv.style.display = 'block';
-    const netPanel = document.getElementById('networkStatusPanel'); if (netPanel) netPanel.style.display = 'flex';
-    const sosBtn = document.getElementById('sosBtnMain'); if (sosBtn) sosBtn.style.display = 'flex';
+    document.getElementById('membersPanel').style.display = 'block';
+    document.getElementById('mapDiv').style.display = 'block';
+    document.getElementById('networkStatusPanel').style.display = 'flex';
+    document.getElementById('sosBtnMain').style.display = 'flex';
     
     try {
-      const unlockCtx = new (window.AudioContext || window.webkitAudioContext)(); await unlockCtx.resume();
+      const unlockCtx = new (window.AudioContext || window.webkitAudioContext)();
+      await unlockCtx.resume(); // ✅ Resume ก่อนเริ่ม
       const stream = await window.startMainMic();
       window.ClearWayWebRTC.joinVoiceRoom(room, nick, stream);
       window.requestWakeLock(); window.initMap();
     } catch (err) {
-      console.error(err); window.isRiding = false; startRideBtn.style.display = 'flex';
-      document.getElementById('leaveRoomBtn').style.display = 'none';
-      if (testMicBtn) testMicBtn.disabled = false; if (memPanel) memPanel.style.display = 'none';
-      if (mapDiv) mapDiv.style.display = 'none'; if (netPanel) netPanel.style.display = 'none'; if (sosBtn) sosBtn.style.display = 'none';
+      console.error(err); window.isRiding = false; startRideBtn.style.display = 'flex'; leaveBtn.style.display = 'none';
+      if (testMicBtn) testMicBtn.disabled = false;
+      document.getElementById('membersPanel').style.display = 'none';
+      document.getElementById('mapDiv').style.display = 'none';
+      document.getElementById('networkStatusPanel').style.display = 'none';
+      document.getElementById('sosBtnMain').style.display = 'none';
     }
   } else {
-    window.isRiding = false; startRideBtn.style.display = 'flex';
-    document.getElementById('leaveRoomBtn').style.display = 'none';
-    document.getElementById('startBtnText').innerText = 'เริ่มสนทนา';
-    document.querySelector('#startRideBtn .btn-icon').innerText = '🏍️';
-    if (document.getElementById('testMicBtn')) document.getElementById('testMicBtn').disabled = false;
-    if (document.getElementById('membersPanel')) document.getElementById('membersPanel').style.display = 'none';
-    if (document.getElementById('mapDiv')) document.getElementById('mapDiv').style.display = 'none';
-    if (document.getElementById('networkStatusPanel')) document.getElementById('networkStatusPanel').style.display = 'none';
-    if (document.getElementById('sosBtnMain')) document.getElementById('sosBtnMain').style.display = 'none';
-    window.stopMainMic(); if (window.ClearWayWebRTC.leaveVoiceRoom) window.ClearWayWebRTC.leaveVoiceRoom(); window.releaseWakeLock();
+    // กดเริ่มใหม่จะไม่ทำอะไร ต้องกดออกห้องเท่านั้น
   }
 };
 
-// 🔽 ออกห้องจริง (เรียกโดย Long-Press Engine)
 window.leaveRoom = function() {
   if (!window.isRiding) return;
   window.isRiding = false;
@@ -115,12 +129,16 @@ window.leaveRoom = function() {
   document.getElementById('leaveRoomBtn').style.display = 'none';
   document.getElementById('startBtnText').innerText = 'เริ่มสนทนา';
   document.querySelector('#startRideBtn .btn-icon').innerText = '🏍️';
+  
   const testMicBtn = document.getElementById('testMicBtn'); if (testMicBtn) testMicBtn.disabled = false;
-  const memPanel = document.getElementById('membersPanel'); if (memPanel) memPanel.style.display = 'none';
-  const mapDiv = document.getElementById('mapDiv'); if (mapDiv) mapDiv.style.display = 'none';
-  const netPanel = document.getElementById('networkStatusPanel'); if (netPanel) netPanel.style.display = 'none';
-  const sosBtn = document.getElementById('sosBtnMain'); if (sosBtn) sosBtn.style.display = 'none';
-  window.stopMainMic(); if (window.ClearWayWebRTC.leaveVoiceRoom) window.ClearWayWebRTC.leaveVoiceRoom(); window.releaseWakeLock();
+  document.getElementById('membersPanel').style.display = 'none';
+  document.getElementById('mapDiv').style.display = 'none';
+  document.getElementById('networkStatusPanel').style.display = 'none';
+  document.getElementById('sosBtnMain').style.display = 'none';
+  
+  window.stopMainMic();
+  if (window.ClearWayWebRTC.leaveVoiceRoom) window.ClearWayWebRTC.leaveVoiceRoom();
+  window.releaseWakeLock();
 };
 
 window.ttMap = null; window.ttMarkers = {};
@@ -156,6 +174,7 @@ window.ClearWayUI = {
 
 document.addEventListener('DOMContentLoaded', () => {
   if (document.getElementById('startRideBtn')) document.getElementById('startRideBtn').addEventListener('click', window.toggleRide);
+  
   const presetSelector = document.getElementById('presetSelector');
   if (presetSelector) {
     presetSelector.addEventListener('change', (e) => {
@@ -179,32 +198,36 @@ document.addEventListener('DOMContentLoaded', () => {
   if (document.getElementById('savePresetBtn')) document.getElementById('savePresetBtn').addEventListener('click', savePreset);
   if (document.getElementById('deletePresetBtn')) document.getElementById('deletePresetBtn').addEventListener('click', deletePreset);
   
-  if (document.getElementById('sosBtnMain')) {
-    let isSOS = false; document.getElementById('sosBtnMain').addEventListener('click', () => { isSOS = !isSOS; document.getElementById('sosBtnMain').classList.toggle('active', isSOS); window.ClearWayWebRTC.sendSOS(isSOS); });
+  // 🔽 SOS BUTTON (Mobile & Desktop Compatible)
+  const sosBtn = document.getElementById('sosBtnMain');
+  if (sosBtn) {
+    let isSOS = false;
+    sosBtn.addEventListener('click', () => {
+      isSOS = !isSOS;
+      sosBtn.classList.toggle('active', isSOS);
+      window.ClearWayWebRTC.sendSOS(isSOS);
+      if (isSOS) window.playSOSAlert(); // ✅ เรียกเสียงทันทีที่กด
+    });
   }
+  
   const vadToggle = document.getElementById('vadToggle'); const vadContent = document.getElementById('vadContent'); const vadIcon = document.getElementById('vadIcon');
   if (vadToggle && vadContent && vadIcon) { vadToggle.addEventListener('click', () => { vadContent.classList.toggle('collapsed'); vadIcon.innerText = vadContent.classList.contains('collapsed') ? '▶' : '▼'; }); }
   
-  // 🔽 LONG-PRESS ENGINE (5 วินาที)
+  // 🔽 LONG-PRESS 5s ENGINE (Robust Touch/Mouse)
   const leaveBtn = document.getElementById('leaveRoomBtn');
   if (leaveBtn) {
     let pressStart = 0, animFrame = null;
     const HOLD_MS = 5000;
-
     const startPress = (e) => {
       if (e.type === 'touchstart') e.preventDefault();
-      pressStart = Date.now();
-      leaveBtn.classList.add('pressing');
+      pressStart = Date.now(); leaveBtn.classList.add('pressing');
       requestAnimationFrame(animate);
     };
-
     const cancelPress = () => {
-      cancelAnimationFrame(animFrame);
-      leaveBtn.classList.remove('pressing');
+      cancelAnimationFrame(animFrame); leaveBtn.classList.remove('pressing');
       leaveBtn.style.transform = ''; leaveBtn.style.borderColor = ''; leaveBtn.style.background = '';
       leaveBtn.querySelector('.btn-text').innerText = 'ออกจากห้อง';
     };
-
     const animate = () => {
       const elapsed = Date.now() - pressStart;
       const progress = Math.min(elapsed / HOLD_MS, 1);
@@ -213,16 +236,9 @@ document.addEventListener('DOMContentLoaded', () => {
       leaveBtn.style.transform = `scale(${0.97 + progress * 0.03})`;
       leaveBtn.style.borderColor = `var(--danger-color)`;
       leaveBtn.style.background = `rgba(255, 75, 75, ${progress * 0.4})`;
-
-      if (progress < 1) {
-        animFrame = requestAnimationFrame(animate);
-      } else {
-        leaveBtn.classList.remove('pressing');
-        leaveBtn.style.transform = ''; leaveBtn.style.borderColor = ''; leaveBtn.style.background = '';
-        window.leaveRoom();
-      }
+      if (progress < 1) animFrame = requestAnimationFrame(animate);
+      else { leaveBtn.classList.remove('pressing'); window.leaveRoom(); }
     };
-
     leaveBtn.addEventListener('mousedown', startPress);
     leaveBtn.addEventListener('touchstart', startPress, { passive: false });
     leaveBtn.addEventListener('mouseup', cancelPress);
