@@ -60,27 +60,28 @@ function _cleanupPeerAudio(peerId) {
   if (audio) { audio.pause(); audio.srcObject = null; audio.remove(); }
 }
 
-// 🔽 แก้ไข: Host Leave & Name Duplication Fix
+// 🔽 แก้ไข: Host Transfer Logic (ลบร่างซ้อน)
 function handlePeerLeave(peerId) {
   if (!peerId) return;
   if (clientDataConnections[peerId]) { clientDataConnections[peerId].close(); delete clientDataConnections[peerId]; }
   if (connectedPeers[peerId]) { connectedPeers[peerId].close(); delete connectedPeers[peerId]; }
   _cleanupPeerAudio(peerId);
   
-  // ✅ ลบ State ก่อน Broadcast ป้องกันชื่อซ้ำ
+  // ✅ ลบ State ทันที ก่อน Broadcast
   if (roomState[peerId]) { delete roomState[peerId]; playBeep('leave'); }
   
-  // ✅ ถ้า Host ออก ให้ยกตำแหน่งให้คนถัดไป (ถ้ามี)
-  if (isHost && peerId === peer.id) {
+  // ✅ ถ้า Host ออก ให้ย้ายตำแหน่งทันที
+  if (peerId === peer?.id && isHost) {
     const remainingPeers = Object.keys(roomState);
     if (remainingPeers.length > 0) {
       const newHostId = remainingPeers[0];
       roomState[newHostId].role = 'Host';
-      roomState[newHostId].isHostTransfer = true; // Flag สำหรับ UI
+      // ✅ ส่งสถานะใหม่ให้ทุกคนเห็นตรงกัน
+      broadcastRoomState();
     }
   }
   
-  if (isHost) broadcastRoomState(); updateUIList();
+  updateUIList();
 }
 
 function joinVoiceRoom(roomId, nickname, localStream) {
@@ -104,7 +105,12 @@ function joinVoiceRoom(roomId, nickname, localStream) {
         if (data.type === 'mic-status') { if (roomState[conn.peer]) roomState[conn.peer].isTalking = data.isActive; broadcastRoomState(); updateUIList(); }
         else if (data.type === 'leave') handlePeerLeave(conn.peer);
         else if (data.type === 'location') { if (roomState[conn.peer]) roomState[conn.peer].location = data.location; broadcastRoomState(); updateUIList(); }
-        else if (data.type === 'sos') { if (roomState[conn.peer]) roomState[conn.peer].sos = data.isActive; broadcastRoomState(); updateUIList(); if (data.isActive && typeof window.playSOSAlert === 'function') window.playSOSAlert(); }
+        else if (data.type === 'sos') { 
+          if (roomState[conn.peer]) roomState[conn.peer].sos = data.isActive; 
+          broadcastRoomState(); updateUIList(); 
+          if (data.isActive && typeof window.playSOSAlert === 'function') window.playSOSAlert();
+          if (isHost) Object.values(clientDataConnections).forEach(c => { if (c.open && c.peer !== conn.peer) c.send({ type: 'sos-alert' }); });
+        }
       });
       conn.on('close', () => handlePeerLeave(conn.peer)); conn.on('error', () => handlePeerLeave(conn.peer));
     });
@@ -124,6 +130,7 @@ function joinVoiceRoom(roomId, nickname, localStream) {
           if (data.type === 'welcome') { roomState = data.roomState; updateUIList(); data.peersToCall.forEach(otherId => { if (!connectedPeers[otherId]) handleActiveCall(peer.call(otherId, myStream)); }); }
           else if (data.type === 'update-state') { roomState = data.roomState; updateUIList(); }
           else if (data.type === 'leave') { handlePeerLeave(data.peerId); if (data.peerId === roomHostId) alert('หัวหน้าทริปสิ้นสุดการสนทนา'); }
+          else if (data.type === 'sos-alert') { if (typeof window.playSOSAlert === 'function') window.playSOSAlert(); }
         });
         hostDataConnection.on('close', () => { if (!isLeaving) attemptReconnect(); });
         hostDataConnection.on('error', () => { if (!isLeaving) attemptReconnect(); });
@@ -134,24 +141,10 @@ function joinVoiceRoom(roomId, nickname, localStream) {
   });
 }
 
-// 🔽 แก้ไข: Network Switch Recovery & Ping Stats
 function startStatsLoop() {
   if (statsInterval) clearInterval(statsInterval);
   statsInterval = setInterval(async () => {
     if (!peer || isLeaving) return;
-    
-    // ✅ Network Switch Detection
-    Object.values(connectedPeers).forEach(call => {
-      if (call.peerConnection) {
-        call.peerConnection.addEventListener('connectionstatechange', () => {
-          if (call.peerConnection.connectionState === 'failed' || call.peerConnection.connectionState === 'disconnected') {
-            console.warn('🌐 Network switch detected, rejoining...');
-            if (!isLeaving) attemptReconnect();
-          }
-        });
-      }
-    });
-
     const targetBitrate = isSpeaking ? RTC_CONFIG.BITRATE_STEP_UP : RTC_CONFIG.BITRATE_STEP_DOWN;
     if (currentBitrate !== targetBitrate) { currentBitrate = targetBitrate; await _applyBitrate(connectedPeers, currentBitrate); }
 
@@ -193,8 +186,11 @@ function startStatsLoop() {
 
 function sendSOS(isActive) {
   const data = { type: 'sos', isActive };
-  if (isHost) { if (peer && roomState[peer.id]) roomState[peer.id].sos = isActive; broadcastRoomState(); if (isActive) Object.values(clientDataConnections).forEach(conn => { if (conn.open) conn.send({ type: 'sos-alert' }); }); }
-  else if (hostDataConnection?.open) hostDataConnection.send(data);
+  if (isHost) { 
+    if (peer && roomState[peer.id]) roomState[peer.id].sos = isActive; 
+    broadcastRoomState(); 
+    Object.values(clientDataConnections).forEach(conn => { if (conn.open) conn.send({ type: 'sos-alert' }); });
+  } else if (hostDataConnection?.open) hostDataConnection.send(data);
 }
 
 function broadcastRoomState() { if (!isHost) return; Object.values(clientDataConnections).forEach(conn => { if (conn.open) conn.send({ type: 'update-state', roomState }); }); }
