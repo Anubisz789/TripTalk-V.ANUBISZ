@@ -60,12 +60,26 @@ function _cleanupPeerAudio(peerId) {
   if (audio) { audio.pause(); audio.srcObject = null; audio.remove(); }
 }
 
+// 🔽 แก้ไข: Host Leave & Name Duplication Fix
 function handlePeerLeave(peerId) {
   if (!peerId) return;
   if (clientDataConnections[peerId]) { clientDataConnections[peerId].close(); delete clientDataConnections[peerId]; }
   if (connectedPeers[peerId]) { connectedPeers[peerId].close(); delete connectedPeers[peerId]; }
   _cleanupPeerAudio(peerId);
+  
+  // ✅ ลบ State ก่อน Broadcast ป้องกันชื่อซ้ำ
   if (roomState[peerId]) { delete roomState[peerId]; playBeep('leave'); }
+  
+  // ✅ ถ้า Host ออก ให้ยกตำแหน่งให้คนถัดไป (ถ้ามี)
+  if (isHost && peerId === peer.id) {
+    const remainingPeers = Object.keys(roomState);
+    if (remainingPeers.length > 0) {
+      const newHostId = remainingPeers[0];
+      roomState[newHostId].role = 'Host';
+      roomState[newHostId].isHostTransfer = true; // Flag สำหรับ UI
+    }
+  }
+  
   if (isHost) broadcastRoomState(); updateUIList();
 }
 
@@ -120,10 +134,24 @@ function joinVoiceRoom(roomId, nickname, localStream) {
   });
 }
 
+// 🔽 แก้ไข: Network Switch Recovery & Ping Stats
 function startStatsLoop() {
   if (statsInterval) clearInterval(statsInterval);
   statsInterval = setInterval(async () => {
     if (!peer || isLeaving) return;
+    
+    // ✅ Network Switch Detection
+    Object.values(connectedPeers).forEach(call => {
+      if (call.peerConnection) {
+        call.peerConnection.addEventListener('connectionstatechange', () => {
+          if (call.peerConnection.connectionState === 'failed' || call.peerConnection.connectionState === 'disconnected') {
+            console.warn('🌐 Network switch detected, rejoining...');
+            if (!isLeaving) attemptReconnect();
+          }
+        });
+      }
+    });
+
     const targetBitrate = isSpeaking ? RTC_CONFIG.BITRATE_STEP_UP : RTC_CONFIG.BITRATE_STEP_DOWN;
     if (currentBitrate !== targetBitrate) { currentBitrate = targetBitrate; await _applyBitrate(connectedPeers, currentBitrate); }
 
@@ -140,11 +168,11 @@ function startStatsLoop() {
         const loss = packetsSent > 0 ? (packetsLost / packetsSent) * 100 : 0;
         const pingEl = document.getElementById('pingValue'); const bitrateEl = document.getElementById('bitrateValue');
         const qualityIcon = document.getElementById('qualityIcon'); const qualityValue = document.getElementById('qualityValue');
-        if (pingEl) { pingEl.innerText = `${Math.round(rtt * 1000)} ms`; pingEl.className = rtt < RTC_CONFIG.RTT_UNSTABLE_THRESHOLD ? 'net-value good' : 'net-value warn'; }
+        if (pingEl) { pingEl.innerText = rtt > 0 ? `${Math.round(rtt * 1000)} ms` : '-- ms'; pingEl.className = rtt > 0 ? (rtt < RTC_CONFIG.RTT_UNSTABLE_THRESHOLD ? 'net-value good' : 'net-value warn') : 'net-value bad'; }
         if (bitrateEl) bitrateEl.innerText = `${Math.round(currentBitrate / 1000)} kbps`;
         if (qualityIcon && qualityValue) {
-          if (rtt < 0.1 && loss < RTC_CONFIG.PACKET_LOSS_THRESHOLD) { qualityIcon.innerText = '🟢'; qualityValue.innerText = 'ยอดเยี่ยม'; qualityValue.className = 'net-value good'; }
-          else if (rtt < 0.25 && loss < RTC_CONFIG.PACKET_LOSS_THRESHOLD * 2) { qualityIcon.innerText = '🟡'; qualityValue.innerText = 'พอใช้'; qualityValue.className = 'net-value warn'; }
+          if (rtt > 0 && rtt < 0.1 && loss < RTC_CONFIG.PACKET_LOSS_THRESHOLD) { qualityIcon.innerText = '🟢'; qualityValue.innerText = 'ยอดเยี่ยม'; qualityValue.className = 'net-value good'; }
+          else if (rtt > 0 && rtt < 0.25 && loss < RTC_CONFIG.PACKET_LOSS_THRESHOLD * 2) { qualityIcon.innerText = '🟡'; qualityValue.innerText = 'พอใช้'; qualityValue.className = 'net-value warn'; }
           else { qualityIcon.innerText = '🔴'; qualityValue.innerText = 'สัญญาณอ่อน'; qualityValue.className = 'net-value bad'; }
         }
       } catch(e) { console.error('Stats error:', e); }
