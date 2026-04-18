@@ -1,52 +1,49 @@
-const CACHE_NAME = 'triptalk-v4.7.1';
-const ASSETS_TO_CACHE = [
-    './',
-    './index.html',
-    './manifest.json',
-    './asset/css/style.css',
-    './asset/js/app.js',
-    './asset/js/webRTC.js',
-    './asset/js/vad.js',
-    './asset/img/icon-192.png',
-    './asset/img/icon-512.png',
-    'https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js',
-    'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
-    'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+const CACHE_NAME = 'triptalk-v4.7.3';
+const APP_SHELL = [
+  './', './index.html', './manifest.json',
+  './asset/css/style.css?v=4.7.3',
+  './asset/js/app.js?v=4.7.3',
+  './asset/js/vad.js?v=4.7.3',
+  './asset/js/webRTC.js?v=4.7.3'
+];
+const CDN_ASSETS = [
+  'https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
 ];
 
-self.addEventListener('install', (event) => {
-    self.skipWaiting();
-    event.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => {
-            console.log('[SW] Pre-caching assets');
-            return cache.addAll(ASSETS_TO_CACHE);
-        })
-    );
+self.addEventListener('install', e => {
+  self.skipWaiting();
+  e.waitUntil(
+    caches.open(CACHE_NAME).then(cache =>
+      Promise.allSettled([
+        cache.addAll(APP_SHELL),
+        ...CDN_ASSETS.map(url => cache.add(url).catch(err => console.warn('[SW] CDN cache skipped:', url, err)))
+      ])
+    )
+  );
 });
 
-self.addEventListener('activate', (event) => {
-    event.waitUntil(
-        Promise.all([
-            self.clients.claim(),
-            caches.keys().then((cacheNames) => {
-                return Promise.all(
-                    cacheNames.map((cache) => {
-                        if (cache !== CACHE_NAME) {
-                            console.log('[SW] Clearing old cache:', cache);
-                            return caches.delete(cache);
-                        }
-                    })
-                );
-            })
-        ])
-    );
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys().then(names => 
+      Promise.all(names.filter(n => n !== CACHE_NAME).map(n => caches.delete(n)))
+    ).then(() => self.clients.claim())
+  );
 });
 
-self.addEventListener('fetch', (event) => {
-    if (!event.request.url.startsWith('http')) return;
-    event.respondWith(
-        fetch(event.request).catch(() => {
-            return caches.match(event.request);
-        })
-    );
+self.addEventListener('fetch', e => {
+  if (e.request.url.startsWith('chrome-extension') || e.request.url.startsWith('ws:')) return;
+  
+  e.respondWith(
+    caches.match(e.request).then(cached => {
+      if (cached) return cached;
+      return fetch(e.request).then(networkRes => {
+        if (!networkRes || networkRes.status !== 200 || networkRes.type !== 'basic') return networkRes;
+        const clone = networkRes.clone();
+        caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
+        return networkRes;
+      }).catch(() => caches.match(e.request));
+    })
+  );
 });
