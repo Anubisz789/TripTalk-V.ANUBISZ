@@ -1,35 +1,20 @@
 // asset/js/webRTC.js
 
 // ─────────────────────────────────────────────
-// CONFIG — Technical Architect Refactor (v4.2)
+// CONFIG — Technical Architect Refactor (v4.4 Ultimate)
 // ─────────────────────────────────────────────
 const RTC_CONFIG = {
     BITRATE_SPEAKING:         28000,  // bps
     BITRATE_SILENT:           8000,   // bps
-    BITRATE_UNSTABLE:         16000,  // bps
-    BITRATE_STEP_DOWN:        3000,
-    BITRATE_STEP_UP:          28000,
     STATS_INTERVAL_MS:        2000,
     RECONNECT_DELAY_MS:       3000,
     CONN_TIMEOUT_MS:          15000,
-    RTT_UNSTABLE_THRESHOLD:   0.15,   // 150ms
-    PACKET_LOSS_THRESHOLD:    5,      // 5%
     
-    // [Architect Fix] เพิ่ม ICE Servers เพื่อรองรับการข้ามผ่าน Symmetric NAT (4G/5G)
     ICE_SERVERS: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-        { urls: 'stun:stun3.l.google.com:19302' },
-        { urls: 'stun:stun4.l.google.com:19302' },
-        // [Critical] เพิ่ม TURN Server สำหรับเน็ตมือถือ 4G/5G (ใช้ OpenRelay เป็นค่าเริ่มต้น)
         {
             urls: 'turn:openrelay.metered.ca:443',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-        },
-        {
-            urls: 'turn:openrelay.metered.ca:80',
             username: 'openrelayproject',
             credential: 'openrelayproject'
         }
@@ -40,379 +25,221 @@ const RTC_CONFIG = {
 // STATE MANAGEMENT
 // ─────────────────────────────────────────────
 let peer                  = null;
-let connectedPeers        = {}; // { peerId: MediaConnection }
+let connectedCalls        = {}; // { peerId: MediaConnection }
+let dataConnections       = {}; // { peerId: DataConnection }
 let myStream              = null;
 let myNickname            = '';
 let isHost                = false;
 let roomHostId            = '';
 let currentRoomId         = '';
 let isLeaving             = false;
-let reconnectTimer        = null;
-let connTimeoutTimer      = null;
-let hostDataConnection    = null; // สำหรับ Guest
-let clientDataConnections = {}; // สำหรับ Host
-let roomState             = {};
-
-// Bitrate + Stats Control
-let isSpeaking            = false;
-let currentBitrate        = RTC_CONFIG.BITRATE_SILENT;
-let statsInterval         = null;
-let lastTotalBytes        = 0;
-let lastStatsTime         = 0;
-
-// ─────────────────────────────────────────────
-// DOM / AUDIO SETUP
-// ─────────────────────────────────────────────
-const remoteAudioContainer = document.createElement('div');
-remoteAudioContainer.id = 'remoteAudios';
-remoteAudioContainer.style.display = 'none';
-document.body.appendChild(remoteAudioContainer);
-
-function playBeep(type) {
-    try {
-        const ctx  = new (window.AudioContext || window.webkitAudioContext)();
-        const osc  = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        gain.gain.setValueAtTime(0.2, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-        osc.frequency.setValueAtTime(type === 'join' ? 660 : 880, ctx.currentTime);
-        osc.frequency.setValueAtTime(type === 'join' ? 880 : 440, ctx.currentTime + 0.1);
-        osc.start(ctx.currentTime);
-        osc.stop(ctx.currentTime + 0.3);
-        osc.onended = () => ctx.close();
-    } catch(e) {}
-}
+let roomState             = {}; // { peerId: { nickname, role, isTalking, lat, lng, isSOS } }
 
 // ─────────────────────────────────────────────
 // CORE WEBRTC LOGIC
 // ─────────────────────────────────────────────
 
-async function _applyBitrate(peers, bitrate) {
-    for (const call of Object.values(peers)) {
-        try {
-            const pc = call.peerConnection;
-            if (!pc) continue;
-            const senders = pc.getSenders().filter(s => s.track?.kind === 'audio');
-            for (const sender of senders) {
-                const params = sender.getParameters();
-                if (!params.encodings?.length) params.encodings = [{}];
-                if (params.encodings[0].maxBitrate !== bitrate) {
-                    params.encodings[0].maxBitrate = bitrate;
-                    await sender.setParameters(params);
+function setupDataHandlers(conn) {
+    dataConnections[conn.peer] = conn;
+    
+    conn.on('open', () => {
+        console.log('[WebRTC] Data connection open with:', conn.peer);
+        if (isHost) {
+            // Host sends welcome to new guest
+            const guestName = conn.metadata?.nickname || 'Unknown Member';
+            roomState[conn.peer] = { nickname: guestName, role: 'Member', isTalking: false };
+            
+            // Full Mesh: Host gives the list of ALL peers to the new guest
+            const peersToCall = Object.keys(roomState).filter(p => p !== conn.peer);
+            conn.send({ type: 'welcome', roomState, peersToCall });
+            broadcastRoomState();
+        }
+    });
+
+    conn.on('data', (data) => {
+        const peerId = conn.peer;
+        if (data.type === 'welcome') {
+            roomState = data.roomState;
+            updateUIList();
+            // Guest calls everyone else in the room
+            data.peersToCall.forEach(pid => {
+                if (!connectedCalls[pid] && pid !== peer.id) {
+                    initiateCall(pid);
+                }
+            });
+        } else if (data.type === 'update-state') {
+            roomState = data.roomState;
+            updateUIList();
+        } else if (data.type === 'mic-status') {
+            if (roomState[peerId]) roomState[peerId].isTalking = data.isActive;
+            updateUIList();
+        } else if (data.type === 'location') {
+            if (roomState[peerId]) {
+                roomState[peerId].lat = data.lat;
+                roomState[peerId].lng = data.lng;
+                if (window.ClearWayUI && window.ClearWayUI.updateMap) {
+                    window.ClearWayUI.updateMap(roomState);
                 }
             }
-        } catch(e) { console.warn('Bitrate update failed:', e); }
-    }
+        } else if (data.type === 'sos') {
+            if (roomState[peerId]) {
+                roomState[peerId].isSOS = data.active;
+                if (window.ClearWayUI && window.ClearWayUI.onSOS) {
+                    window.ClearWayUI.onSOS(peerId, roomState[peerId].nickname, data.active);
+                }
+                updateUIList();
+            }
+        }
+    });
+
+    conn.on('close', () => handlePeerLeave(conn.peer));
 }
 
 function handleActiveCall(call) {
-    if (!call) return;
-    const peerId = call.peer;
-    connectedPeers[peerId] = call;
-
+    connectedCalls[call.peer] = call;
     call.on('stream', (remoteStream) => {
-        let audio = document.getElementById(`audio-${peerId}`);
+        let audio = document.getElementById(`audio-${call.peer}`);
         if (!audio) {
-            audio          = document.createElement('audio');
-            audio.id       = `audio-${peerId}`;
+            audio = document.createElement('audio');
+            audio.id = `audio-${call.peer}`;
             audio.autoplay = true;
-            audio.setAttribute('playsinline', ''); // สำคัญสำหรับ iOS
-            remoteAudioContainer.appendChild(audio);
+            audio.setAttribute('playsinline', '');
+            document.getElementById('remoteAudios').appendChild(audio);
         }
         audio.srcObject = remoteStream;
         audio.play().catch(e => console.warn("Autoplay blocked:", e));
     });
-
-    call.on('close', () => {
-        _cleanupPeerAudio(peerId);
-        delete connectedPeers[peerId];
-    });
-
-    call.on('error', (err) => {
-        console.error(`Call error with ${peerId}:`, err);
-        _cleanupPeerAudio(peerId);
-    });
+    call.on('close', () => handlePeerLeave(call.peer));
 }
 
-function _cleanupPeerAudio(peerId) {
-    const audio = document.getElementById(`audio-${peerId}`);
-    if (audio) {
-        audio.pause();
-        audio.srcObject = null;
-        audio.remove();
-    }
+function initiateCall(targetPeerId) {
+    console.log('[WebRTC] Initiating call to:', targetPeerId);
+    // 1. Data Connection (for Location/SOS)
+    const conn = peer.connect(targetPeerId, { 
+        metadata: { nickname: myNickname },
+        reliable: true 
+    });
+    setupDataHandlers(conn);
+
+    // 2. Audio Call
+    const call = peer.call(targetPeerId, myStream);
+    handleActiveCall(call);
 }
 
 function handlePeerLeave(peerId) {
     if (!peerId) return;
-    if (clientDataConnections[peerId]) {
-        clientDataConnections[peerId].close();
-        delete clientDataConnections[peerId];
-    }
-    if (connectedPeers[peerId]) {
-        connectedPeers[peerId].close();
-        delete connectedPeers[peerId];
-    }
-    _cleanupPeerAudio(peerId);
-    if (roomState[peerId]) {
-        delete roomState[peerId];
-        playBeep('leave');
-    }
-    if (isHost) broadcastRoomState();
+    delete roomState[peerId];
+    delete dataConnections[peerId];
+    delete connectedCalls[peerId];
+    const audio = document.getElementById(`audio-${peerId}`);
+    if (audio) audio.remove();
     updateUIList();
 }
 
 // ─────────────────────────────────────────────
-// SIGNALING & ROOM JOIN
+// EXPORTED FUNCTIONS
 // ─────────────────────────────────────────────
 
-function joinVoiceRoom(roomId, nickname, localStream) {
-    myStream      = localStream;
-    myNickname    = nickname;
-    currentRoomId = roomId;
-    roomHostId    = `clearway-room-${roomId}`;
-    isLeaving     = false;
+window.ClearWayWebRTC = {
+    joinVoiceRoom(roomId, nickname, localStream) {
+        myStream = localStream;
+        myNickname = nickname;
+        currentRoomId = roomId;
+        roomHostId = `triptalk-room-${roomId}`;
+        
+        const peerConfig = {
+            config: { 
+                iceServers: RTC_CONFIG.ICE_SERVERS,
+                iceTransportPolicy: 'all',
+                iceCandidatePoolSize: 10
+            }
+        };
 
-    updateConnectionStatus('🟡 กำลังเชื่อมต่อเซิร์ฟเวอร์...', 'muted');
-
-    const peerConfig = {
-        debug: 1,
-        config: { 
-            iceServers: RTC_CONFIG.ICE_SERVERS,
-            iceTransportPolicy: 'all',
-            iceCandidatePoolSize: 10
-        }
-    };
-
-    peer = new Peer(roomHostId, peerConfig);
-
-    // Case 1: เป็น Host (ID ว่าง)
-    peer.on('open', (id) => {
-        isHost = true;
-        roomState[id] = { nickname: myNickname, role: 'Host', isTalking: false };
-        updateUIList();
-        updateConnectionStatus('🟢 สร้างห้องแล้ว (หัวหน้าทริป)', 'active');
-        startStatsLoop();
-
-        peer.on('connection', (conn) => {
-            clientDataConnections[conn.peer] = conn;
-            conn.on('open', () => {
-                const guestName = conn.metadata?.nickname || 'Unknown';
-                roomState[conn.peer] = { nickname: guestName, role: 'Member', isTalking: false };
-                
-                // [Architect Fix] ส่งรายชื่อทุกคนรวมถึง Host เองให้ Guest ใหม่ (Full Mesh)
-                const allPeers = Object.keys(roomState).filter(p => p !== conn.peer);
-                conn.send({ type: 'welcome', roomState, peersToCall: allPeers });
-                
-                broadcastRoomState();
-                updateUIList();
-                playBeep('join');
-            });
-
-            conn.on('data', (data) => {
-                if (data.type === 'mic-status') {
-                    if (roomState[conn.peer]) roomState[conn.peer].isTalking = data.isActive;
-                    broadcastRoomState();
-                    updateUIList();
-                } else if (data.type === 'leave') {
-                    handlePeerLeave(conn.peer);
-                }
-            });
-
-            conn.on('close', () => handlePeerLeave(conn.peer));
-            conn.on('error', () => handlePeerLeave(conn.peer));
-        });
-
-        peer.on('call', (call) => {
-            call.answer(myStream);
-            handleActiveCall(call);
-        });
-    });
-
-    // Case 2: เป็น Guest (ID ถูกใช้แล้ว)
-    peer.on('error', (err) => {
-        if (err.type === 'unavailable-id') {
-            isHost = false;
-            peer.destroy();
+        // Try to be Host
+        peer = new Peer(roomHostId, peerConfig);
+        
+        peer.on('open', (id) => {
+            isHost = true;
+            roomState[id] = { nickname: myNickname, role: 'Host', isTalking: false };
+            updateUIList();
+            updateConnectionStatus('🟢 สร้างห้องแล้ว (Host)', 'active');
             
-            peer = new Peer(peerConfig);
-
-            peer.on('open', (myId) => {
-                updateConnectionStatus('🟡 กำลังเข้าห้อง...', 'muted');
-                hostDataConnection = peer.connect(roomHostId, { 
-                    metadata: { nickname: myNickname },
-                    reliable: true
-                });
-
-                connTimeoutTimer = setTimeout(() => {
-                    if (!hostDataConnection.open && !isLeaving) attemptReconnect();
-                }, RTC_CONFIG.CONN_TIMEOUT_MS);
-
-                hostDataConnection.on('open', () => {
-                    clearTimeout(connTimeoutTimer);
-                    updateConnectionStatus('🟢 เข้าร่วมทริปแล้ว', 'active');
-                    startStatsLoop();
-                });
-
-                hostDataConnection.on('data', (data) => {
-                    if (data.type === 'welcome') {
-                        roomState = data.roomState;
-                        updateUIList();
-                        // [Architect Fix] โทรหาทุกคนที่อยู่ในห้อง (Full Mesh)
-                        data.peersToCall.forEach(otherId => {
-                            if (!connectedPeers[otherId]) {
-                                const call = peer.call(otherId, myStream);
-                                handleActiveCall(call);
-                            }
-                        });
-                    } else if (data.type === 'update-state') {
-                        roomState = data.roomState;
-                        updateUIList();
-                    } else if (data.type === 'leave') {
-                        handlePeerLeave(data.peerId);
-                        if (data.peerId === roomHostId) {
-                            alert('หัวหน้าทริปสิ้นสุดการสนทนา');
-                            location.reload();
-                        }
-                    }
-                });
-
-                hostDataConnection.on('close', () => {
-                    if (!isLeaving) attemptReconnect();
-                });
-                
-                hostDataConnection.on('error', () => {
-                    if (!isLeaving) attemptReconnect();
-                });
-            });
-
-            // [Architect Fix] Guest ต้องรับสายจาก Guest คนอื่นที่เข้าห้องมาทีหลังด้วย
+            peer.on('connection', setupDataHandlers);
             peer.on('call', (call) => {
                 call.answer(myStream);
                 handleActiveCall(call);
             });
+        });
 
-            peer.on('disconnected', () => { if (!isLeaving) peer.reconnect(); });
-        } else {
-            console.error('PeerJS error:', err);
-            if (!isLeaving && err.type !== 'peer-unavailable') {
-                updateConnectionStatus('🔴 เชื่อมต่อผิดพลาด', 'disconnected');
+        peer.on('error', (err) => {
+            if (err.type === 'unavailable-id') {
+                // Room exists, join as Guest
+                isHost = false;
+                peer.destroy();
+                peer = new Peer(peerConfig);
+                peer.on('open', (myId) => {
+                    updateConnectionStatus('🟡 กำลังเข้าห้อง...', 'muted');
+                    initiateCall(roomHostId);
+                });
+                peer.on('call', (call) => {
+                    call.answer(myStream);
+                    handleActiveCall(call);
+                });
+                peer.on('connection', setupDataHandlers);
             }
-        }
+        });
+    },
+
+    leaveVoiceRoom() {
+        isLeaving = true;
+        if (peer) peer.destroy();
+        document.getElementById('remoteAudios').innerHTML = '';
+        roomState = {};
+    },
+
+    updateMyTalkingState(isActive) {
+        if (!peer || !peer.id || !roomState[peer.id]) return;
+        roomState[peer.id].isTalking = isActive;
+        broadcastToAll({ type: 'mic-status', isActive });
+        updateUIList();
+    },
+
+    sendLocation(lat, lng) {
+        if (!peer || !peer.id || !roomState[peer.id]) return;
+        roomState[peer.id].lat = lat;
+        roomState[peer.id].lng = lng;
+        broadcastToAll({ type: 'location', lat, lng });
+    },
+
+    sendSOS(active) {
+        if (!peer || !peer.id || !roomState[peer.id]) return;
+        roomState[peer.id].isSOS = active;
+        broadcastToAll({ type: 'sos', active });
+        updateUIList();
+    }
+};
+
+function broadcastToAll(data) {
+    Object.values(dataConnections).forEach(conn => {
+        if (conn.open) conn.send(data);
     });
 }
-
-// ─────────────────────────────────────────────
-// STATS & BITRATE CONTROL
-// ─────────────────────────────────────────────
-
-function startStatsLoop() {
-    if (statsInterval) clearInterval(statsInterval);
-    statsInterval = setInterval(async () => {
-        if (!peer || isLeaving) return;
-
-        // 1. Bitrate Adjustment based on Voice Activity
-        const targetBitrate = isSpeaking ? RTC_CONFIG.BITRATE_STEP_UP : RTC_CONFIG.BITRATE_STEP_DOWN;
-        if (currentBitrate !== targetBitrate) {
-            currentBitrate = targetBitrate;
-            await _applyBitrate(connectedPeers, currentBitrate);
-        }
-
-        // 2. Network Quality Check (Sampling first peer for simplicity)
-        const firstCall = Object.values(connectedPeers)[0];
-        if (firstCall?.peerConnection) {
-            try {
-                const stats = await firstCall.peerConnection.getStats();
-                let rtt = 0;
-                let loss = 0;
-                stats.forEach(report => {
-                    if (report.type === 'remote-inbound-rtp') {
-                        rtt = report.roundTripTime || 0;
-                        loss = report.packetsLost || 0;
-                    }
-                });
-                
-                // Update UI Network Status if elements exist
-                const pingEl = document.getElementById('pingValue');
-                if (pingEl) {
-                    pingEl.innerText = `${Math.round(rtt * 1000)} ms`;
-                    pingEl.className = rtt < RTC_CONFIG.RTT_UNSTABLE_THRESHOLD ? 'net-value good' : 'net-value warn';
-                }
-            } catch(e) {}
-        }
-    }, RTC_CONFIG.STATS_INTERVAL_MS);
-}
-
-// ─────────────────────────────────────────────
-// UTILS & CLEANUP
-// ─────────────────────────────────────────────
 
 function broadcastRoomState() {
-    if (!isHost) return;
-    Object.values(clientDataConnections).forEach(conn => {
-        if (conn.open) conn.send({ type: 'update-state', roomState });
-    });
-}
-
-function broadcastMicStatus(isActive) {
-    if (!peer || !roomState[peer.id]) return;
-    isSpeaking = isActive;
-    
-    roomState[peer.id].isTalking = isActive;
-    updateUIList();
-
-    if (isHost) {
-        broadcastRoomState();
-    } else if (hostDataConnection && hostDataConnection.open) {
-        hostDataConnection.send({ type: 'mic-status', isActive });
-    }
+    broadcastToAll({ type: 'update-state', roomState });
 }
 
 function updateUIList() {
-    if (window.ClearWayUI?.renderMembers) {
+    if (window.ClearWayUI) {
         window.ClearWayUI.renderMembers(roomState, peer ? peer.id : null);
     }
 }
 
-function attemptReconnect() {
-    if (isLeaving) return;
-    updateConnectionStatus('🟡 สัญญาณหลุด กำลังเชื่อมใหม่...', 'muted');
-    setTimeout(() => {
-        if (!isLeaving) joinVoiceRoom(currentRoomId, myNickname, myStream);
-    }, RTC_CONFIG.RECONNECT_DELAY_MS);
-}
-
-function leaveVoiceRoom() {
-    isLeaving = true;
-    if (isHost) {
-        Object.values(clientDataConnections).forEach(conn => {
-            if (conn.open) conn.send({ type: 'leave', peerId: peer.id });
-        });
-    } else if (hostDataConnection && hostDataConnection.open) {
-        hostDataConnection.send({ type: 'leave' });
-    }
-
-    if (statsInterval) clearInterval(statsInterval);
-    
-    setTimeout(() => {
-        if (peer) peer.destroy();
-        peer = null;
-        roomState = {};
-        clientDataConnections = {};
-        hostDataConnection = null;
-        Object.keys(connectedPeers).forEach(id => _cleanupPeerAudio(id));
-        connectedPeers = {};
-        updateUIList();
-    }, 200);
-}
-
-function updateConnectionStatus(text, stateClass) {
+function updateConnectionStatus(text, type) {
     const badge = document.getElementById('connectionStatusBadge');
-    const statusText = document.getElementById('connectionStatusText');
-    if (badge) badge.className = `status-badge ${stateClass}`;
-    if (statusText) statusText.innerText = text;
+    const label = document.getElementById('connectionStatusText');
+    if (label) label.innerText = text;
+    if (badge) {
+        badge.className = `status-badge ${type}`;
+    }
 }
-
-window.ClearWayWebRTC = { joinVoiceRoom, leaveVoiceRoom, broadcastMicStatus };
