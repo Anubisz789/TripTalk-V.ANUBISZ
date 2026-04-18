@@ -123,7 +123,7 @@ function joinVoiceRoom(roomId, nickname, localStream) {
         else if (data.type === 'sos') { 
           if (roomState[conn.peer]) roomState[conn.peer].sos = data.isActive; 
           broadcastRoomState(); updateUIList(); 
-          if (data.isActive && typeof window.playSOSAlert === 'function') window.playSOSAlert();
+          if (typeof window.playSOSAlert === 'function') window.playSOSAlert(data.isActive);
           if (isHost) {
             // กระจาย SOS Alert ให้ทุกคน (ยกเว้นคนส่งมา เพราะเขาเล่นเสียงเองแล้ว)
             Object.values(clientDataConnections).forEach(c => { 
@@ -150,7 +150,7 @@ function joinVoiceRoom(roomId, nickname, localStream) {
           if (data.type === 'welcome') { roomState = data.roomState; updateUIList(); data.peersToCall.forEach(otherId => { if (!connectedPeers[otherId]) handleActiveCall(peer.call(otherId, myStream)); }); }
           else if (data.type === 'update-state') { roomState = data.roomState; updateUIList(); }
           else if (data.type === 'leave') { handlePeerLeave(data.peerId); if (data.peerId === roomHostId) alert('หัวหน้าทริปสิ้นสุดการสนทนา'); }
-          else if (data.type === 'sos-alert') { if (typeof window.playSOSAlert === 'function') window.playSOSAlert(); }
+          else if (data.type === 'sos-alert') { if (typeof window.playSOSAlert === 'function') window.playSOSAlert(data.isActive); }
         });
         hostDataConnection.on('close', () => { if (!isLeaving) attemptReconnect(); });
         hostDataConnection.on('error', () => { if (!isLeaving) attemptReconnect(); });
@@ -208,8 +208,8 @@ function sendSOS(isActive) {
   const data = { type: 'sos', isActive };
   
   // เล่นเสียงที่เครื่องตัวเองทันทีไม่ว่าเป็น Host หรือ Member
-  if (isActive && typeof window.playSOSAlert === 'function') {
-    window.playSOSAlert();
+  if (typeof window.playSOSAlert === 'function') {
+    window.playSOSAlert(isActive);
   }
 
   if (isHost) { 
