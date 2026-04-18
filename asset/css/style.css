@@ -1,12 +1,7 @@
 :root {
-  --bg-color: #0a0b10;
-  --panel-bg: #161822;
-  --primary-color: #00d2ff;
-  --primary-dark: #00a8cc;
-  --text-main: #ffffff;
-  --text-muted: #7b849b;
-  --danger-color: #ff4b4b;
-  --success-color: #00d2ff;
+  --bg-color: #0a0b10; --panel-bg: #161822; --primary-color: #00d2ff;
+  --primary-dark: #00a8cc; --text-main: #ffffff; --text-muted: #7b849b;
+  --danger-color: #ff4b4b; --success-color: #00d2ff;
   --glow-shadow: 0 4px 20px rgba(0, 210, 255, 0.25);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -46,7 +41,6 @@ header h1 { color: var(--primary-color); font-size: 2.5rem; letter-spacing: 1px;
 .settings-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
 .settings-header h3 { margin-bottom: 0; font-size: 1.1rem; color: var(--primary-color); }
 .toggle-icon { font-size: 0.8rem; color: var(--primary-color); transition: transform 0.3s ease; }
-.toggle-icon.rotate { transform: rotate(-180deg); }
 .settings-content { max-height: 1000px; overflow: hidden; transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease; opacity: 1; margin-top: 20px; }
 .settings-content.collapsed { max-height: 0; opacity: 0; margin-top: 0; pointer-events: none; }
 
@@ -87,28 +81,14 @@ input[type=range] { width: 100%; height: 30px; background: transparent; cursor: 
 .net-value.warn { color: #ffeb3b; }
 .net-value.bad { color: #f44336; }
 
-/* 🔽 LONG-PRESS EXIT BUTTON STYLES 🔽 */
+/* 🔽 LONG-PRESS EXIT BUTTON (Mobile/Desktop Optimized) 🔽 */
 .btn-danger-outline {
-  width: 100%;
-  padding: 14px;
-  background: transparent;
-  border: 2px solid var(--danger-color);
-  color: var(--danger-color);
-  border-radius: 12px;
-  font-size: 1.1rem;
-  font-weight: 800;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-  transition: transform 0.1s ease, border-color 0.1s ease, background 0.1s ease;
-  margin-top: 10px;
-  user-select: none;
-  -webkit-user-select: none;
+  width: 100%; padding: 14px; background: transparent;
+  border: 2px solid var(--danger-color); color: var(--danger-color);
+  border-radius: 12px; font-size: 1.1rem; font-weight: 800;
+  display: none; flex-direction: column; align-items: center; gap: 4px;
+  cursor: pointer; transition: transform 0.1s ease, border-color 0.1s ease, background 0.1s ease;
+  margin-top: 10px; user-select: none; -webkit-user-select: none;
 }
-.btn-danger-outline.pressing {
-  transform: scale(0.97);
-  background: rgba(255, 75, 75, 0.15);
-}
+.btn-danger-outline.pressing { transform: scale(0.97); background: rgba(255, 75, 75, 0.15); }
 .btn-danger-outline:active { transform: scale(0.98); }
