@@ -98,8 +98,12 @@ window.toggleRide = async function() {
 
     window.isRiding = true;
     startRideBtn.style.display = 'none';
-    if (leaveBtn) leaveBtn.style.display = 'flex';      // ✅ แสดงปุ่มออกทันที
-    if (inputGroup) inputGroup.style.display = 'none';   // ✅ ซ่อนช่องกรอกชื่อ/ห้อง
+    if (leaveBtn) {
+      leaveBtn.style.setProperty('display', 'flex', 'important'); // ✅ บังคับแสดงปุ่มออก
+    }
+    if (inputGroup) {
+      inputGroup.style.setProperty('display', 'none', 'important'); // ✅ บังคับซ่อนช่องกรอก
+    }
 
     const testMicBtn = document.getElementById('testMicBtn'); if (testMicBtn) testMicBtn.disabled = true;
     document.getElementById('membersPanel').style.display = 'block';
@@ -131,8 +135,10 @@ window.leaveRoom = function() {
   if (!window.isRiding) return;
   window.isRiding = false;
   document.getElementById('startRideBtn').style.display = 'flex';
-  document.getElementById('leaveRoomBtn').style.display = 'none';
-  document.querySelector('#roomControlPanel .input-group').style.display = 'flex'; // ✅ ดึงช่องกรอกกลับมา
+  const leaveBtn = document.getElementById('leaveRoomBtn');
+  if (leaveBtn) leaveBtn.style.setProperty('display', 'none', 'important');
+  const inputGroup = document.querySelector('#roomControlPanel .input-group');
+  if (inputGroup) inputGroup.style.setProperty('display', 'flex', 'important');
   document.getElementById('startBtnText').innerText = 'เริ่มสนทนา';
   document.querySelector('#startRideBtn .btn-icon').innerText = '🏍️';
   
