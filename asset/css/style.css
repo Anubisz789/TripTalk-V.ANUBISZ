@@ -382,3 +382,107 @@ input[type=range] {
     padding: 4px 8px;
     border-radius: 4px;
 }
+
+/* [ARCHITECT v4.6.6] SOS & MAP STYLES */
+.sos-btn {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 70px;
+    height: 70px;
+    background: #f44336;
+    color: white;
+    border-radius: 50%;
+    display: none; /* ซ่อนไว้ก่อนเริ่มสนทนา */
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: bold;
+    box-shadow: 0 4px 15px rgba(244, 67, 54, 0.4);
+    border: 4px solid rgba(255, 255, 255, 0.2);
+    z-index: 1000;
+    cursor: pointer;
+    transition: transform 0.1s;
+}
+.sos-btn:active { transform: scale(0.9); }
+.sos-btn.active { animation: pulse-red 1s infinite; }
+
+@keyframes pulse-red {
+    0% { box-shadow: 0 0 0 0 rgba(244, 67, 54, 0.7); }
+    70% { box-shadow: 0 0 0 20px rgba(244, 67, 54, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(244, 67, 54, 0); }
+}
+
+.map-panel {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    margin-top: 14px;
+    overflow: hidden;
+    display: none;
+}
+#map {
+    width: 100%;
+    height: 250px;
+    background: #1a1a1a;
+}
+.map-header {
+    padding: 8px 12px;
+    font-size: 11px;
+    color: rgba(255,255,255,0.4);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    display: flex;
+    justify-content: space-between;
+}
+
+.sos-tag {
+    background: #f44336;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: bold;
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+.member-status {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #333;
+}
+.member-status.talking {
+    background: var(--primary-color);
+    box-shadow: 0 0 8px var(--primary-color);
+}
+
+/* [ARCHITECT v4.6.7] NETWORK STATS PANEL */
+.network-status-panel {
+    background: rgba(255,255,255,0.05);
+    border-radius: 12px;
+    padding: 12px;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    border: 1px solid rgba(255,255,255,0.1);
+    margin-bottom: 10px;
+}
+.net-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+.net-icon { font-size: 1.2rem; }
+.net-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; }
+.net-value { font-size: 0.9rem; font-weight: bold; }
+.net-value.good { color: #4caf50; }
+.net-value.warn { color: #ffeb3b; }
+.net-value.bad { color: #f44336; }
