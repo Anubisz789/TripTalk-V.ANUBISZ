@@ -72,10 +72,11 @@ window.toggleRide = async function() {
   if (!window.isRiding) {
     const nick = nicknameInput.value.trim(); const room = roomInput.value.trim();
     if (!nick || !room) return alert('กรุณาใส่ชื่อและรหัสทริป');
-    window.isRiding = true; startRideBtn.classList.add('stop'); if (startBtnText) startBtnText.innerText = 'จบการสนทนา';
-    const icon = startRideBtn.querySelector('.btn-icon'); if (icon) icon.innerText = '🛑';
+    window.isRiding = true; startRideBtn.style.display = 'none'; 
+    document.getElementById('leaveRoomBtn').style.display = 'flex';
+    
     const testMicBtn = document.getElementById('testMicBtn'); if (testMicBtn) testMicBtn.disabled = true;
-    const roomPanel = document.getElementById('roomControlPanel'); if (roomPanel) roomPanel.style.display = 'none';
+    const roomPanel = document.getElementById('roomControlPanel'); if (roomPanel) roomPanel.style.display = 'block';
     const memPanel = document.getElementById('membersPanel'); if (memPanel) memPanel.style.display = 'block';
     const mapDiv = document.getElementById('mapDiv'); if (mapDiv) mapDiv.style.display = 'block';
     const netPanel = document.getElementById('networkStatusPanel'); if (netPanel) netPanel.style.display = 'flex';
@@ -87,23 +88,39 @@ window.toggleRide = async function() {
       window.ClearWayWebRTC.joinVoiceRoom(room, nick, stream);
       window.requestWakeLock(); window.initMap();
     } catch (err) {
-      console.error(err); window.isRiding = false; startRideBtn.classList.remove('stop');
-      if (startBtnText) startBtnText.innerText = 'เริ่มสนทนา'; if (icon) icon.innerText = '🏍️';
-      if (testMicBtn) testMicBtn.disabled = false; if (roomPanel) roomPanel.style.display = 'block';
-      if (memPanel) memPanel.style.display = 'none'; if (mapDiv) mapDiv.style.display = 'none';
-      if (netPanel) netPanel.style.display = 'none'; if (sosBtn) sosBtn.style.display = 'none';
+      console.error(err); window.isRiding = false; startRideBtn.style.display = 'flex';
+      document.getElementById('leaveRoomBtn').style.display = 'none';
+      if (testMicBtn) testMicBtn.disabled = false; if (memPanel) memPanel.style.display = 'none';
+      if (mapDiv) mapDiv.style.display = 'none'; if (netPanel) netPanel.style.display = 'none'; if (sosBtn) sosBtn.style.display = 'none';
     }
   } else {
-    window.isRiding = false; startRideBtn.classList.remove('stop'); if (startBtnText) startBtnText.innerText = 'เริ่มสนทนา';
-    const icon = startRideBtn.querySelector('.btn-icon'); if (icon) icon.innerText = '🏍️';
+    window.isRiding = false; startRideBtn.style.display = 'flex';
+    document.getElementById('leaveRoomBtn').style.display = 'none';
+    document.getElementById('startBtnText').innerText = 'เริ่มสนทนา';
+    document.querySelector('#startRideBtn .btn-icon').innerText = '🏍️';
     if (document.getElementById('testMicBtn')) document.getElementById('testMicBtn').disabled = false;
-    if (document.getElementById('roomControlPanel')) document.getElementById('roomControlPanel').style.display = 'block';
     if (document.getElementById('membersPanel')) document.getElementById('membersPanel').style.display = 'none';
     if (document.getElementById('mapDiv')) document.getElementById('mapDiv').style.display = 'none';
     if (document.getElementById('networkStatusPanel')) document.getElementById('networkStatusPanel').style.display = 'none';
     if (document.getElementById('sosBtnMain')) document.getElementById('sosBtnMain').style.display = 'none';
     window.stopMainMic(); if (window.ClearWayWebRTC.leaveVoiceRoom) window.ClearWayWebRTC.leaveVoiceRoom(); window.releaseWakeLock();
   }
+};
+
+// 🔽 ออกห้องจริง (เรียกโดย Long-Press Engine)
+window.leaveRoom = function() {
+  if (!window.isRiding) return;
+  window.isRiding = false;
+  document.getElementById('startRideBtn').style.display = 'flex';
+  document.getElementById('leaveRoomBtn').style.display = 'none';
+  document.getElementById('startBtnText').innerText = 'เริ่มสนทนา';
+  document.querySelector('#startRideBtn .btn-icon').innerText = '🏍️';
+  const testMicBtn = document.getElementById('testMicBtn'); if (testMicBtn) testMicBtn.disabled = false;
+  const memPanel = document.getElementById('membersPanel'); if (memPanel) memPanel.style.display = 'none';
+  const mapDiv = document.getElementById('mapDiv'); if (mapDiv) mapDiv.style.display = 'none';
+  const netPanel = document.getElementById('networkStatusPanel'); if (netPanel) netPanel.style.display = 'none';
+  const sosBtn = document.getElementById('sosBtnMain'); if (sosBtn) sosBtn.style.display = 'none';
+  window.stopMainMic(); if (window.ClearWayWebRTC.leaveVoiceRoom) window.ClearWayWebRTC.leaveVoiceRoom(); window.releaseWakeLock();
 };
 
 window.ttMap = null; window.ttMarkers = {};
@@ -167,6 +184,52 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   const vadToggle = document.getElementById('vadToggle'); const vadContent = document.getElementById('vadContent'); const vadIcon = document.getElementById('vadIcon');
   if (vadToggle && vadContent && vadIcon) { vadToggle.addEventListener('click', () => { vadContent.classList.toggle('collapsed'); vadIcon.innerText = vadContent.classList.contains('collapsed') ? '▶' : '▼'; }); }
+  
+  // 🔽 LONG-PRESS ENGINE (5 วินาที)
+  const leaveBtn = document.getElementById('leaveRoomBtn');
+  if (leaveBtn) {
+    let pressStart = 0, animFrame = null;
+    const HOLD_MS = 5000;
+
+    const startPress = (e) => {
+      if (e.type === 'touchstart') e.preventDefault();
+      pressStart = Date.now();
+      leaveBtn.classList.add('pressing');
+      requestAnimationFrame(animate);
+    };
+
+    const cancelPress = () => {
+      cancelAnimationFrame(animFrame);
+      leaveBtn.classList.remove('pressing');
+      leaveBtn.style.transform = ''; leaveBtn.style.borderColor = ''; leaveBtn.style.background = '';
+      leaveBtn.querySelector('.btn-text').innerText = 'ออกจากห้อง';
+    };
+
+    const animate = () => {
+      const elapsed = Date.now() - pressStart;
+      const progress = Math.min(elapsed / HOLD_MS, 1);
+      const remain = (1 - progress).toFixed(1);
+      leaveBtn.querySelector('.btn-text').innerText = `ค้างไว้ ${remain}s`;
+      leaveBtn.style.transform = `scale(${0.97 + progress * 0.03})`;
+      leaveBtn.style.borderColor = `var(--danger-color)`;
+      leaveBtn.style.background = `rgba(255, 75, 75, ${progress * 0.4})`;
+
+      if (progress < 1) {
+        animFrame = requestAnimationFrame(animate);
+      } else {
+        leaveBtn.classList.remove('pressing');
+        leaveBtn.style.transform = ''; leaveBtn.style.borderColor = ''; leaveBtn.style.background = '';
+        window.leaveRoom();
+      }
+    };
+
+    leaveBtn.addEventListener('mousedown', startPress);
+    leaveBtn.addEventListener('touchstart', startPress, { passive: false });
+    leaveBtn.addEventListener('mouseup', cancelPress);
+    leaveBtn.addEventListener('mouseleave', cancelPress);
+    leaveBtn.addEventListener('touchend', cancelPress);
+    leaveBtn.addEventListener('touchcancel', cancelPress);
+  }
   
   loadPresets(); updateSliderLabels();
 });
