@@ -220,11 +220,9 @@ function sendSOS(isActive) {
 
   if (isHost) { 
     if (peer && roomState[peer.id]) roomState[peer.id].sos = isActive; 
+    // ส่ง alert ให้ลูกข่ายทุกคน และอัปเดต UI ตัวเอง
     broadcastRoomState(); 
-    // ส่ง alert ให้ลูกข่ายทุกคน
-    Object.values(clientDataConnections).forEach(conn => { 
-      if (conn.open) conn.send({ type: 'sos-alert', from: peer.id, isActive }); 
-    });
+    updateUIList();
   } else {
     // ถ้าเป็น Member ส่งให้ Host เพื่อให้ Host กระจายต่อ
     if (hostDataConnection?.open) {
