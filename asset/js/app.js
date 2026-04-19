@@ -315,3 +315,159 @@ document.addEventListener('DOMContentLoaded', () => {
   
   loadPresets(); updateSliderLabels();
 });
+
+
+// ===== 🎨 THEME SYSTEM & UI CUSTOMIZATION =====
+
+// 🎨 Theme Configuration
+const THEMES = {
+  '': { name: 'Night Blue', icon: '🌙' },
+  'light': { name: 'Light Mode', icon: '☀️' },
+  'dark': { name: 'Dark Mode', icon: '🌙' },
+  'night-rider': { name: 'Night Rider', icon: '🏍️' },
+  'high-contrast': { name: 'High Contrast', icon: '⚪' },
+  'ocean': { name: 'Ocean Blue', icon: '🌊' },
+  'tropical': { name: 'Tropical', icon: '🌴' },
+  'gaming': { name: 'Gaming', icon: '🎮' }
+};
+
+// 💾 Load Theme from LocalStorage
+function loadTheme() {
+  const savedTheme = localStorage.getItem('triptalk_theme') || '';
+  applyTheme(savedTheme);
+}
+
+// 🎨 Apply Theme
+function applyTheme(themeName) {
+  if (themeName) {
+    document.documentElement.setAttribute('data-theme', themeName);
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+  }
+  localStorage.setItem('triptalk_theme', themeName);
+  updateThemeSwitcher(themeName);
+}
+
+// 🎨 Build Theme Switcher Buttons
+function buildThemeSwitcher() {
+  const switcher = document.getElementById('themeSwitcher');
+  if (!switcher) return;
+  
+  switcher.innerHTML = '';
+  Object.entries(THEMES).forEach(([key, theme]) => {
+    const btn = document.createElement('button');
+    btn.className = 'theme-btn';
+    btn.textContent = theme.icon;
+    btn.title = theme.name;
+    btn.dataset.theme = key;
+    btn.addEventListener('click', () => applyTheme(key));
+    switcher.appendChild(btn);
+  });
+}
+
+// 🎨 Update Active Theme Button
+function updateThemeSwitcher(themeName) {
+  document.querySelectorAll('.theme-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.theme === themeName);
+  });
+}
+
+// 📏 Font Size Control
+function setupFontSizeControl() {
+  const slider = document.getElementById('fontSizeSlider');
+  const label = document.getElementById('fontSizeVal');
+  
+  if (!slider) return;
+  
+  // Load saved font size
+  const savedFontSize = localStorage.getItem('triptalk_fontSize') || '100';
+  slider.value = savedFontSize;
+  applyFontSize(parseInt(savedFontSize));
+  
+  slider.addEventListener('input', (e) => {
+    const size = parseInt(e.target.value);
+    applyFontSize(size);
+    localStorage.setItem('triptalk_fontSize', size);
+    if (label) label.innerText = `${size}%`;
+  });
+}
+
+function applyFontSize(percent) {
+  document.documentElement.style.fontSize = `${percent}%`;
+}
+
+// 🎯 Compact Mode Toggle
+function setupCompactMode() {
+  const toggle = document.getElementById('compactModeToggle');
+  if (!toggle) return;
+  
+  const isCompact = localStorage.getItem('triptalk_compact') === 'true';
+  toggle.checked = isCompact;
+  applyCompactMode(isCompact);
+  
+  toggle.addEventListener('change', (e) => {
+    applyCompactMode(e.target.checked);
+    localStorage.setItem('triptalk_compact', e.target.checked);
+  });
+}
+
+function applyCompactMode(isCompact) {
+  if (isCompact) {
+    document.documentElement.style.setProperty('--gap-size', '12px');
+    document.documentElement.style.setProperty('--padding-size', '12px');
+  } else {
+    document.documentElement.style.setProperty('--gap-size', '24px');
+    document.documentElement.style.setProperty('--padding-size', '20px');
+  }
+}
+
+// 🎨 Theme Toggle Panel
+function setupThemePanel() {
+  const themeToggle = document.getElementById('themeToggle');
+  const themeContent = document.getElementById('themeContent');
+  const themeIcon = document.getElementById('themeIcon');
+  const themeSelector = document.getElementById('themeSelector');
+  
+  if (!themeToggle || !themeContent) return;
+  
+  // Load saved theme in selector
+  const savedTheme = localStorage.getItem('triptalk_theme') || '';
+  if (themeSelector) {
+    themeSelector.value = savedTheme;
+    themeSelector.addEventListener('change', (e) => {
+      applyTheme(e.target.value);
+    });
+  }
+  
+  // Toggle panel
+  themeToggle.addEventListener('click', () => {
+    themeContent.classList.toggle('collapsed');
+    if (themeIcon) {
+      themeIcon.innerText = themeContent.classList.contains('collapsed') ? '▶' : '▼';
+    }
+  });
+}
+
+// 🚀 Initialize Theme System on Page Load
+document.addEventListener('DOMContentLoaded', () => {
+  // Load and apply saved theme
+  loadTheme();
+  
+  // Build theme switcher UI
+  buildThemeSwitcher();
+  
+  // Setup UI customization controls
+  setupFontSizeControl();
+  setupCompactMode();
+  setupThemePanel();
+});
+
+// 📱 Detect System Theme Preference (Optional Auto-Switch)
+if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').media !== 'not all') {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+    // Auto-switch only if user hasn't manually set a theme
+    if (!localStorage.getItem('triptalk_theme_manual')) {
+      applyTheme(e.matches ? 'dark' : 'light');
+    }
+  });
+}
