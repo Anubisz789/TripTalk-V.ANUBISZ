@@ -157,41 +157,22 @@ function joinVoiceRoom(roomId, nickname, localStream) {
             roomState = data.roomState; updateUIList(); 
             data.peersToCall.forEach(otherId => { 
               if (!connectedPeers[otherId]) handleActiveCall(peer.call(otherId, myStream)); 
-              // ✅ Member เชื่อมต่อ Data กับคนอื่นๆ เพื่อส่ง SOS ถึงกันโดยตรง
-              if (!clientDataConnections[otherId]) {
-                const conn = peer.connect(otherId, { metadata: { nickname: myNickname }, reliable: true });
-                _setupMemberDataConnection(conn);
-              }
             }); 
           }
           else if (data.type === 'update-state') { roomState = data.roomState; updateUIList(); }
           else if (data.type === 'leave') { handlePeerLeave(data.peerId); if (data.peerId === roomHostId) alert('หัวหน้าทริปสิ้นสุดการสนทนา'); }
-          else if (data.type === 'sos-alert') { if (typeof window.playSOSAlert === 'function') window.playSOSAlert(data.isActive); }
+          else if (data.type === 'sos-alert') { 
+            console.log("Member received SOS alert:", data.isActive);
+            if (typeof window.playSOSAlert === 'function') window.playSOSAlert(data.isActive); 
+          }
         });
         hostDataConnection.on('close', () => { if (!isLeaving) attemptReconnect(); });
         hostDataConnection.on('error', () => { if (!isLeaving) attemptReconnect(); });
       });
       peer.on('call', (call) => { call.answer(myStream); handleActiveCall(call); });
       peer.on('disconnected', () => { if (!isLeaving) peer.reconnect(); });
-      
-      // ✅ รับการเชื่อมต่อ Data จาก Member คนอื่นๆ
-      peer.on('connection', (conn) => {
-        _setupMemberDataConnection(conn);
-      });
     } else { console.error('PeerJS error:', err); if (!isLeaving && err.type !== 'peer-unavailable') updateConnectionStatus('🔴 เชื่อมต่อผิดพลาด', 'disconnected'); }
   });
-}
-
-// ✅ ฟังก์ชันช่วยตั้งค่า Data Connection สำหรับ Member
-function _setupMemberDataConnection(conn) {
-  clientDataConnections[conn.peer] = conn;
-  conn.on('data', (data) => {
-    if (data.type === 'sos-alert') {
-      if (typeof window.playSOSAlert === 'function') window.playSOSAlert(data.isActive);
-    }
-  });
-  conn.on('close', () => delete clientDataConnections[conn.peer]);
-  conn.on('error', () => delete clientDataConnections[conn.peer]);
 }
 
 function startStatsLoop() {
@@ -240,26 +221,26 @@ function startStatsLoop() {
 function sendSOS(isActive) {
   const data = { type: 'sos', isActive };
   
-  // เล่นเสียงที่เครื่องตัวเองทันที
+  // 1. เล่นเสียงที่เครื่องตัวเองทันที
   if (typeof window.playSOSAlert === 'function') {
     window.playSOSAlert(isActive);
   }
 
+  // 2. อัปเดต UI ตัวเอง
   if (peer && roomState[peer.id]) {
     roomState[peer.id].sos = isActive;
     updateUIList();
   }
 
-  // ✅ ส่งสัญญาณ SOS Alert ให้ทุกคนที่เชื่อมต่ออยู่โดยตรง (ทั้ง Host และ Member คนอื่นๆ)
-  Object.values(clientDataConnections).forEach(conn => {
-    if (conn.open) conn.send({ type: 'sos-alert', from: peer.id, isActive });
-  });
-
   if (isHost) { 
+    // 3. ถ้าเป็น Host: กระจาย RoomState (ภาพ) และ SOS-Alert (เสียง) ให้ลูกข่ายทุกคน
     broadcastRoomState(); 
+    Object.values(clientDataConnections).forEach(conn => {
+      if (conn.open) conn.send({ type: 'sos-alert', from: peer.id, isActive });
+    });
   } else {
-    // ถ้าเป็น Member ส่งให้ Host ด้วยเพื่อให้ Host ช่วยกระจายสัญญาณซ้ำ (Relay)
-    if (hostDataConnection?.open) {
+    // 4. ถ้าเป็น Member: ส่งสัญญาณหา Host เพื่อให้ Host กระจายต่อ (Relay) ให้คนอื่น
+    if (hostDataConnection && hostDataConnection.open) {
       hostDataConnection.send(data);
     }
   }
