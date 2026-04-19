@@ -4,7 +4,11 @@ let sosAudioCtx = null;
 let sosInterval = null;
 window.playSOSAlert = function(isActive) {
   if (!isActive) {
-    if (sosInterval) { clearInterval(sosInterval); sosInterval = null; }
+    // ตรวจสอบว่ามีคนอื่นในห้องยัง SOS อยู่ไหม (จาก roomState)
+    const hasOtherSOS = window.roomState ? Object.values(window.roomState).some(u => u.sos) : false;
+    if (!hasOtherSOS) {
+      if (sosInterval) { clearInterval(sosInterval); sosInterval = null; }
+    }
     return;
   }
   if (sosInterval) return; // ทำงานอยู่แล้วไม่ต้องเริ่มใหม่
