@@ -91,12 +91,9 @@ input[type=range] { width: 100%; height: 30px; background: transparent; cursor: 
 .sos-btn:active { transform: scale(0.95); }
 .sos-btn.active { animation: pulse-red 1s infinite; background: #f44336; }
 
-/* ✅ รูปไอคอน SOS */
-.sos-icon-img {
-  position: absolute; width: 70%; height: 70%;
-  background-image: url('../img/sos_icon.png');
-  background-size: contain; background-repeat: no-repeat; background-position: center;
-  z-index: 2; pointer-events: none;
+/* ✅ SVG SOS Icon */
+.sos-icon-svg {
+  position: absolute; width: 80%; height: 80%; z-index: 2; pointer-events: none;
 }
 
 /* ✅ Progress Bar รอบปุ่ม */
