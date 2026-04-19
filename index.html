@@ -53,7 +53,13 @@
       <div class="map-panel" id="mapDiv" style="display:none;">
         <div id="map"></div>
       </div>
-      <button class="sos-btn" id="sosBtnMain" style="display:none;">🆘 SOS</button>
+      <button class="sos-btn" id="sosBtnMain" style="display:none;">
+        <svg class="sos-progress-svg" viewBox="0 0 100 100">
+          <circle class="sos-progress-bg" cx="50" cy="50" r="45"></circle>
+          <circle id="sosProgressCircle" class="sos-progress-bar" cx="50" cy="50" r="45" stroke-dasharray="283" stroke-dashoffset="283"></circle>
+        </svg>
+        <div class="sos-icon-img"></div>
+      </button>
     </div>
 
     <div class="settings-panel">
