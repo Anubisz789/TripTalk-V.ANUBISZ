@@ -269,6 +269,8 @@ document.addEventListener('DOMContentLoaded', () => {
     sosBtn.addEventListener('pointerup', cancelSOSPress);
     sosBtn.addEventListener('pointercancel', cancelSOSPress);
     sosBtn.addEventListener('pointerleave', cancelSOSPress);
+    // ✅ ป้องกันเมนู Copy/Context Menu ขึ้นมาขัดจังหวะการกดค้าง
+    sosBtn.addEventListener('contextmenu', (e) => e.preventDefault());
   }
   
   const vadToggle = document.getElementById('vadToggle'); const vadContent = document.getElementById('vadContent'); const vadIcon = document.getElementById('vadIcon');
