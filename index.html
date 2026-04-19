@@ -3,166 +3,144 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>TripTalk | Connect the Ride. Clear the Way.</title>
+  <title>TripTalk | Connect the Ride</title>
   <link rel="manifest" href="./manifest.json">
   <meta name="theme-color" content="#00d2ff">
-  <link rel="stylesheet" href="./asset/css/style.css?v=5.0.0">
+  <link rel="stylesheet" href="./asset/css/style.css?v=6.0.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <style>
-    /* 🎨 Theme Switcher UI */
-    .theme-switcher {
-      position: fixed; top: 10px; right: 10px; z-index: 999;
-      display: flex; gap: 5px; flex-wrap: wrap; max-width: 200px;
-      background: var(--panel-bg); padding: 8px; border-radius: 12px;
-      border: 1px solid var(--border-color);
-    }
-    .theme-btn {
-      width: 36px; height: 36px; border-radius: 8px; border: 2px solid transparent;
-      cursor: pointer; transition: all 0.2s; font-size: 16px; background: transparent;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .theme-btn:hover { transform: scale(1.08); }
-    .theme-btn.active { border-color: var(--primary-color); box-shadow: 0 0 8px var(--glow-shadow); }
-  </style>
 </head>
 <body>
-  <div class="app-container">
-    <!-- 🎨 THEME SWITCHER -->
-    <div class="theme-switcher" id="themeSwitcher"></div>
-
-    <header>
-      <h1>TripTalk</h1>
-      <p class="tagline">Connect the Ride. Clear the Way.</p>
+  <div class="app-shell">
+    <!-- 🟢 TOP BAR: Status & Brand -->
+    <header class="main-header">
+      <div class="brand">
+        <span class="logo">🏍️</span>
+        <h1>TripTalk</h1>
+      </div>
+      <div class="header-status">
+        <div id="connectionStatusBadge" class="mini-badge disconnected"></div>
+        <div id="micStatusBadge" class="mini-badge muted"></div>
+      </div>
     </header>
 
-    <div class="status-panel">
-      <div class="status-badge disconnected" id="connectionStatusBadge">
-        <span id="connectionStatusText">🔴 รอการเชื่อมต่อ</span>
-      </div>
-      <div class="status-badge muted" id="micStatusBadge">
-        <span id="micStatusText">🎙️ ไมค์ปิด (รอเสียง)</span>
-      </div>
-    </div>
-
-    <div class="network-status-panel" id="networkStatusPanel" style="display:none;">
-      <div class="net-stat"><span class="net-icon">📶</span><span class="net-label">Ping</span><span class="net-value" id="pingValue">-- ms</span></div>
-      <div class="net-stat"><span class="net-icon">🎧</span><span class="net-label">Bitrate</span><span class="net-value" id="bitrateValue">-- kbps</span></div>
-      <div class="net-stat"><span class="net-icon" id="qualityIcon">🟢</span><span class="net-label">Status</span><span class="net-value" id="qualityValue">--</span></div>
-    </div>
-
-    <div class="control-panel" id="roomControlPanel">
-      <div class="input-group">
-        <input type="text" id="nicknameInput" placeholder="ชื่อเล่น" maxlength="15">
-        <input type="text" id="roomInput" placeholder="รหัสทริป" maxlength="10">
-      </div>
-      <button class="btn-primary" id="startRideBtn">
-        <span class="btn-icon">🏍️</span>
-        <span id="startBtnText">เริ่มสนทนา</span>
-      </button>
-      <button class="btn-danger-outline" id="leaveRoomBtn" style="display:none;">
-        <span class="btn-icon">🚪</span>
-        <span class="btn-text">ออกจากห้อง</span>
-      </button>
-    </div>
-
-    <div class="members-panel" id="membersPanel" style="display:none;">
-      <h3>👥 สมาชิกในทริป</h3>
-      <ul class="member-list" id="memberList"></ul>
-      <div class="map-panel" id="mapDiv" style="display:none;">
-        <div id="map"></div>
-      </div>
-      <button class="sos-btn" id="sosBtnMain" style="display:none;">
-        <svg class="sos-progress-svg" viewBox="0 0 100 100">
-          <circle class="sos-progress-bg" cx="50" cy="50" r="45"></circle>
-          <circle id="sosProgressCircle" class="sos-progress-bar" cx="50" cy="50" r="45" stroke-dasharray="283" stroke-dashoffset="283"></circle>
-        </svg>
-        <svg class="sos-icon-svg" viewBox="0 0 100 100">
-          <circle cx="50" cy="50" r="35" fill="#f44336"></circle>
-          <text x="50" y="58" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-weight="900" font-size="22" style="pointer-events: none; user-select: none;">SOS</text>
-        </svg>
-      </button>
-    </div>
-
-    <!-- 🎨 UI & THEME SETTINGS -->
-    <div class="settings-panel">
-      <div class="settings-header" id="themeToggle">
-        <h3>🎨 ตั้งค่า UI & Theme</h3>
-        <span class="toggle-icon" id="themeIcon">▼</span>
-      </div>
-      <div class="settings-content" id="themeContent">
-        <div class="setting-item">
-          <div class="setting-label"><span>เลือก Theme</span></div>
-          <select id="themeSelector" class="btn-secondary" style="width:100%; padding:10px; margin-bottom:15px;">
-            <option value="">🌙 Night Blue (Default)</option>
-            <option value="light">☀️ Light Mode</option>
-            <option value="dark">🌙 Dark Mode</option>
-            <option value="night-rider">🏍️ Night Rider</option>
-            <option value="high-contrast">⚪ High Contrast</option>
-            <option value="ocean">🌊 Ocean Blue</option>
-            <option value="tropical">🌴 Tropical</option>
-            <option value="gaming">🎮 Gaming</option>
-          </select>
+    <!-- 🟢 MAIN CONTENT AREA -->
+    <main class="content-area">
+      
+      <!-- 🏠 JOIN/START VIEW (Initial State) -->
+      <section id="setupView" class="view-panel active">
+        <div class="welcome-card">
+          <h2>เตรียมออกทริป</h2>
+          <p>ใส่ชื่อและรหัสห้องเพื่อเริ่มสนทนา</p>
+          <div class="input-stack">
+            <div class="input-field">
+              <label>ชื่อเล่น</label>
+              <input type="text" id="nicknameInput" placeholder="ระบุชื่อของคุณ" maxlength="15">
+            </div>
+            <div class="input-field">
+              <label>รหัสทริป</label>
+              <input type="text" id="roomInput" placeholder="เช่น BKK-001" maxlength="10">
+            </div>
+          </div>
+          <button class="btn-hero" id="startRideBtn">
+            <span class="btn-icon">🚀</span>
+            <span id="startBtnText">เริ่มทริปเลย</span>
+          </button>
         </div>
-        <div class="setting-item">
-          <div class="setting-label"><span>ขนาดตัวอักษร</span><span class="setting-value" id="fontSizeVal">100%</span></div>
-          <input type="range" id="fontSizeSlider" min="80" max="140" step="10" value="100">
-          <p class="hint">ปรับขนาดตัวอักษรให้เหมาะสม</p>
-        </div>
-        <div class="setting-item">
-          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-            <input type="checkbox" id="compactModeToggle" style="width: 20px; height: 20px;">
-            <span>โหมด Compact (ลดระยะห่าง)</span>
-          </label>
-        </div>
-      </div>
-    </div>
+      </section>
 
-    <!-- 🔊 VAD SETTINGS -->
-    <div class="settings-panel">
-      <div class="settings-header" id="vadToggle">
-        <h3>⚙️ ตั้งค่าตัดเสียงลม (VAD)</h3>
-        <span class="toggle-icon" id="vadIcon">▼</span>
-      </div>
-      <div class="settings-content" id="vadContent">
-        <div class="preset-controls">
-          <select id="presetSelector" class="btn-secondary" style="width:100%; margin-bottom:10px; padding:10px;">
-            <option value="">🎛️ โหลดโปรไฟล์...</option>
-          </select>
-          <div class="input-group" style="margin-bottom:10px;">
-            <input type="text" id="customPresetName" placeholder="ชื่อ Preset ใหม่" maxlength="20" style="flex:2;">
-            <button id="savePresetBtn" class="btn-secondary" style="flex:1;">💾</button>
-            <button id="deletePresetBtn" class="btn-secondary" style="flex:1;">🗑️</button>
+      <!-- 🏍️ RIDE VIEW (Active State) -->
+      <section id="rideView" class="view-panel" style="display:none;">
+        <!-- Stats Summary -->
+        <div class="stats-bar" id="networkStatusPanel">
+          <div class="stat-item"><span class="stat-label">Ping:</span> <span id="pingValue">--</span></div>
+          <div class="stat-item"><span class="stat-label">Quality:</span> <span id="qualityValue">--</span></div>
+        </div>
+
+        <!-- Member Grid -->
+        <div class="members-container">
+          <h3>👥 สมาชิกในกลุ่ม</h3>
+          <ul class="member-grid" id="memberList"></ul>
+        </div>
+
+        <!-- Map Mini Preview -->
+        <div class="map-container" id="mapDiv">
+          <div id="map"></div>
+        </div>
+        
+        <button class="btn-leave-long" id="leaveRoomBtn">
+          <span class="btn-text">กดค้างเพื่อออกจากห้อง</span>
+        </button>
+      </section>
+
+      <!-- ⚙️ SETTINGS VIEW -->
+      <section id="settingsView" class="view-panel" style="display:none;">
+        <div class="settings-group">
+          <h3>🎨 รูปแบบหน้าจอ</h3>
+          <div class="theme-grid" id="themeSwitcher"></div>
+          
+          <div class="setting-row">
+            <span>ขนาดตัวอักษร</span>
+            <input type="range" id="fontSizeSlider" min="80" max="140" step="10" value="100">
           </div>
         </div>
 
-        <div class="test-mic-section">
-          <button id="testMicBtn" class="btn-outline">🎙️ ทดสอบระดับเสียง</button>
-          <div class="meter-wrapper">
-            <div class="meter-container" id="volumeMeterContainer">
+        <div class="settings-group">
+          <h3>⚙️ ระบบตัดเสียงลม (VAD)</h3>
+          <div class="vad-tester">
+            <button id="testMicBtn" class="btn-outline-sm">ทดสอบไมค์</button>
+            <div class="meter-bar">
               <div class="meter-fill" id="volumeMeterFill"></div>
-              <div class="threshold-marker" id="thresholdMarker" style="left: 50%;"></div>
-            </div>
-            <div class="meter-labels">
-              <span class="current-volume-text" id="currentVolumeText">ระดับเสียง: 0%</span>
-              <span class="current-volume-text">🔈</span>
-              <span class="current-volume-text">🔊</span>
+              <div class="threshold-line" id="thresholdMarker"></div>
             </div>
           </div>
+          
+          <div class="setting-row">
+            <span>ความไว (Threshold)</span>
+            <input type="range" id="thresholdSlider" min="0" max="100" value="50">
+          </div>
+          <div class="setting-row">
+            <span>หน่วงเวลา (Hold)</span>
+            <input type="range" id="holdTimeSlider" min="400" max="3000" step="100" value="1500">
+          </div>
+          <div class="setting-row">
+            <span>ตัดเสียงลม (Wind)</span>
+            <input type="range" id="highpassSlider" min="50" max="500" step="10" value="100">
+          </div>
         </div>
-        <hr class="divider">
+      </section>
+    </main>
 
-        <div class="setting-item"><div class="setting-label"><span>ความไวไมค์ (Threshold)</span><span class="setting-value" id="thresholdVal">50%</span></div><input type="range" id="thresholdSlider" min="0" max="100" step="1" value="50"><p class="hint">เลื่อนให้เส้นขาวหนีเสียงรบกวนพื้นหลัง</p></div>
-        <div class="setting-item"><div class="setting-label"><span>หน่วงเวลาปิดไมค์ (Hold)</span><span class="setting-value" id="holdTimeVal">1.5s</span></div><input type="range" id="holdTimeSlider" min="400" max="3000" step="100" value="1500"><p class="hint">ป้องกันไมค์ตัดเวลาเว้นวรรคหายใจ</p></div>
-        <div class="setting-item"><div class="setting-label"><span>ตัดเสียงลม (Wind Filter)</span><span class="setting-value" id="highpassVal">100 Hz</span></div><input type="range" id="highpassSlider" min="50" max="500" step="10" value="100"><p class="hint">ค่าสูง = ตัดเสียงรบกวนมากขึ้น (เสียงลม/เครื่องยนต์)</p></div>
-        <div class="setting-item"><div class="setting-label"><span>เพิ่มเสียงพูด (Voice Boost)</span><span class="setting-value" id="gainVal">1.4x</span></div><input type="range" id="gainSlider" min="10" max="22" step="1" value="14"><p class="hint">เพิ่มความดังเสียงพูด (ไม่ควรเกิน 1.8x)</p></div>
-      </div>
-    </div>
+    <!-- 🟢 BOTTOM NAVIGATION -->
+    <nav class="bottom-nav">
+      <button class="nav-item active" data-view="setupView" id="navHome">
+        <span class="nav-icon">🏠</span>
+        <span class="nav-label">หน้าแรก</span>
+      </button>
+      <button class="nav-item" data-view="rideView" id="navRide" style="display:none;">
+        <span class="nav-icon">🏍️</span>
+        <span class="nav-label">การขับขี่</span>
+      </button>
+      <button class="nav-item" data-view="settingsView" id="navSettings">
+        <span class="nav-icon">⚙️</span>
+        <span class="nav-label">ตั้งค่า</span>
+      </button>
+    </nav>
+
+    <!-- 🆘 SOS BUTTON (Floating) -->
+    <button class="sos-fab" id="sosBtnMain" style="display:none;">
+      <svg class="sos-ring" viewBox="0 0 100 100">
+        <circle class="ring-bg" cx="50" cy="50" r="45"></circle>
+        <circle id="sosProgressCircle" class="ring-fill" cx="50" cy="50" r="45"></circle>
+      </svg>
+      <span class="sos-label">SOS</span>
+    </button>
   </div>
 
+  <!-- Scripts -->
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="./asset/js/webRTC.js?v=5.0.0"></script>
-  <script src="./asset/js/vad.js?v=5.0.0"></script>
-  <script src="./asset/js/app.js?v=5.0.0"></script>
+  <script src="./asset/js/webRTC.js?v=6.0.0"></script>
+  <script src="./asset/js/vad.js?v=6.0.0"></script>
+  <script src="./asset/js/app.js?v=6.0.0"></script>
 </body>
 </html>
