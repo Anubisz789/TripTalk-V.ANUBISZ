@@ -58,7 +58,11 @@
           <circle class="sos-progress-bg" cx="50" cy="50" r="45"></circle>
           <circle id="sosProgressCircle" class="sos-progress-bar" cx="50" cy="50" r="45" stroke-dasharray="283" stroke-dashoffset="283"></circle>
         </svg>
-        <div class="sos-icon-img"></div>
+        <!-- SOS Icon drawn with SVG for zero-filesize and no text-selection -->
+        <svg class="sos-icon-svg" viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="35" fill="#f44336"></circle>
+          <text x="50" y="58" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-weight="900" font-size="22" style="pointer-events: none; user-select: none;">SOS</text>
+        </svg>
       </button>
     </div>
 
