@@ -3,144 +3,144 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>TripTalk | Connect the Ride</title>
+  <title>TripTalk | Minimal Sport</title>
   <link rel="manifest" href="./manifest.json">
-  <meta name="theme-color" content="#00d2ff">
-  <link rel="stylesheet" href="./asset/css/style.css?v=6.0.0">
+  <meta name="theme-color" content="#00e5ff">
+  <link rel="stylesheet" href="./asset/css/style.css?v=6.2.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 <body>
-  <div class="app-shell">
-    <!-- 🟢 TOP BAR: Status & Brand -->
-    <header class="main-header">
-      <div class="brand">
-        <span class="logo">🏍️</span>
-        <h1>TripTalk</h1>
-      </div>
-      <div class="header-status">
-        <div id="connectionStatusBadge" class="mini-badge disconnected"></div>
-        <div id="micStatusBadge" class="mini-badge muted"></div>
-      </div>
+  <div class="app-container">
+    <!-- 🎨 THEME SWITCHER -->
+    <div class="theme-switcher" id="themeSwitcher"></div>
+
+    <header>
+      <h1>TripTalk</h1>
+      <p class="tagline">Minimal Sport Edition</p>
     </header>
 
-    <!-- 🟢 MAIN CONTENT AREA -->
-    <main class="content-area">
-      
-      <!-- 🏠 JOIN/START VIEW (Initial State) -->
-      <section id="setupView" class="view-panel active">
-        <div class="welcome-card">
-          <h2>เตรียมออกทริป</h2>
-          <p>ใส่ชื่อและรหัสห้องเพื่อเริ่มสนทนา</p>
-          <div class="input-stack">
-            <div class="input-field">
-              <label>ชื่อเล่น</label>
-              <input type="text" id="nicknameInput" placeholder="ระบุชื่อของคุณ" maxlength="15">
-            </div>
-            <div class="input-field">
-              <label>รหัสทริป</label>
-              <input type="text" id="roomInput" placeholder="เช่น BKK-001" maxlength="10">
-            </div>
+    <div class="status-panel">
+      <div class="status-badge disconnected" id="connectionStatusBadge">
+        <span id="connectionStatusText">🔴 DISCONNECTED</span>
+      </div>
+      <div class="status-badge muted" id="micStatusBadge">
+        <span id="micStatusText">🎙️ MIC OFF</span>
+      </div>
+    </div>
+
+    <div class="network-status-panel" id="networkStatusPanel" style="display:none;">
+      <div class="net-stat"><span class="net-icon">📶</span><span class="net-label">Ping</span><span class="net-value" id="pingValue">-- ms</span></div>
+      <div class="net-stat"><span class="net-icon">🎧</span><span class="net-label">Bitrate</span><span class="net-value" id="bitrateValue">-- kbps</span></div>
+      <div class="net-stat"><span class="net-icon" id="qualityIcon">🟢</span><span class="net-label">Status</span><span class="net-value" id="qualityValue">--</span></div>
+    </div>
+
+    <div class="control-panel" id="roomControlPanel">
+      <div class="input-group">
+        <input type="text" id="nicknameInput" placeholder="NICKNAME" maxlength="15">
+        <input type="text" id="roomInput" placeholder="ROOM ID" maxlength="10">
+      </div>
+      <button class="btn-primary" id="startRideBtn">
+        <span class="btn-icon">🏍️</span>
+        <span id="startBtnText">START RIDE</span>
+      </button>
+      <button class="btn-danger-outline" id="leaveRoomBtn" style="display:none;">
+        <span class="btn-text">LEAVE ROOM</span>
+      </button>
+    </div>
+
+    <div class="members-panel" id="membersPanel" style="display:none;">
+      <h3>👥 RIDERS IN GROUP</h3>
+      <ul class="member-list" id="memberList"></ul>
+      <div class="map-panel" id="mapDiv" style="display:none;">
+        <div id="map"></div>
+      </div>
+      <button class="sos-btn" id="sosBtnMain" style="display:none;">
+        <svg class="sos-progress-svg" viewBox="0 0 100 100">
+          <circle class="sos-progress-bg" cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="4"></circle>
+          <circle id="sosProgressCircle" class="sos-progress-bar" cx="50" cy="50" r="45"></circle>
+        </svg>
+        <span style="color: #ff3b30; font-weight: 900; font-size: 14px; z-index: 2;">SOS</span>
+      </button>
+    </div>
+
+    <!-- 🎨 UI & THEME SETTINGS -->
+    <div class="settings-panel">
+      <div class="settings-header" id="themeToggle">
+        <h3>🎨 INTERFACE & THEME</h3>
+        <span class="toggle-icon" id="themeIcon">▼</span>
+      </div>
+      <div class="settings-content" id="themeContent">
+        <div class="setting-item">
+          <div class="setting-label"><span>SELECT THEME</span></div>
+          <select id="themeSelector" class="btn-secondary" style="width:100%; padding:12px; margin-bottom:15px;">
+            <option value="">🌙 NIGHT BLUE</option>
+            <option value="light">☀️ LIGHT MODE</option>
+            <option value="dark">🌙 DARK MODE</option>
+            <option value="night-rider">🏍️ NIGHT RIDER</option>
+            <option value="high-contrast">⚪ HIGH CONTRAST</option>
+            <option value="ocean">🌊 OCEAN BLUE</option>
+            <option value="tropical">🌴 TROPICAL</option>
+            <option value="gaming">🎮 GAMING</option>
+          </select>
+        </div>
+        <div class="setting-item">
+          <div class="setting-label"><span>FONT SIZE</span><span class="setting-value" id="fontSizeVal">100%</span></div>
+          <input type="range" id="fontSizeSlider" min="80" max="140" step="10" value="100">
+        </div>
+        <div class="setting-item">
+          <label style="display: flex; align-items: center; gap: 12px; cursor: pointer; font-size: 0.85rem; font-weight: 600;">
+            <input type="checkbox" id="compactModeToggle" style="width: 18px; height: 18px;">
+            <span>COMPACT MODE</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 🔊 VAD SETTINGS -->
+    <div class="settings-panel">
+      <div class="settings-header" id="vadToggle">
+        <h3>⚙️ VOICE ENGINE (VAD)</h3>
+        <span class="toggle-icon" id="vadIcon">▼</span>
+      </div>
+      <div class="settings-content" id="vadContent">
+        <div class="preset-controls">
+          <select id="presetSelector" class="btn-secondary" style="width:100%; margin-bottom:12px;">
+            <option value="">🎛️ LOAD PRESET...</option>
+          </select>
+          <div class="input-group" style="margin-bottom:12px;">
+            <input type="text" id="customPresetName" placeholder="PRESET NAME" maxlength="20" style="flex:2;">
+            <button id="savePresetBtn" class="btn-secondary" style="flex:1;">💾</button>
+            <button id="deletePresetBtn" class="btn-secondary" style="flex:1;">🗑️</button>
           </div>
-          <button class="btn-hero" id="startRideBtn">
-            <span class="btn-icon">🚀</span>
-            <span id="startBtnText">เริ่มทริปเลย</span>
-          </button>
-        </div>
-      </section>
-
-      <!-- 🏍️ RIDE VIEW (Active State) -->
-      <section id="rideView" class="view-panel" style="display:none;">
-        <!-- Stats Summary -->
-        <div class="stats-bar" id="networkStatusPanel">
-          <div class="stat-item"><span class="stat-label">Ping:</span> <span id="pingValue">--</span></div>
-          <div class="stat-item"><span class="stat-label">Quality:</span> <span id="qualityValue">--</span></div>
         </div>
 
-        <!-- Member Grid -->
-        <div class="members-container">
-          <h3>👥 สมาชิกในกลุ่ม</h3>
-          <ul class="member-grid" id="memberList"></ul>
-        </div>
-
-        <!-- Map Mini Preview -->
-        <div class="map-container" id="mapDiv">
-          <div id="map"></div>
-        </div>
-        
-        <button class="btn-leave-long" id="leaveRoomBtn">
-          <span class="btn-text">กดค้างเพื่อออกจากห้อง</span>
-        </button>
-      </section>
-
-      <!-- ⚙️ SETTINGS VIEW -->
-      <section id="settingsView" class="view-panel" style="display:none;">
-        <div class="settings-group">
-          <h3>🎨 รูปแบบหน้าจอ</h3>
-          <div class="theme-grid" id="themeSwitcher"></div>
-          
-          <div class="setting-row">
-            <span>ขนาดตัวอักษร</span>
-            <input type="range" id="fontSizeSlider" min="80" max="140" step="10" value="100">
-          </div>
-        </div>
-
-        <div class="settings-group">
-          <h3>⚙️ ระบบตัดเสียงลม (VAD)</h3>
-          <div class="vad-tester">
-            <button id="testMicBtn" class="btn-outline-sm">ทดสอบไมค์</button>
-            <div class="meter-bar">
+        <div class="test-mic-section">
+          <button id="testMicBtn" class="btn-outline">🎙️ TEST MICROPHONE</button>
+          <div class="meter-wrapper">
+            <div class="meter-container" id="volumeMeterContainer">
               <div class="meter-fill" id="volumeMeterFill"></div>
-              <div class="threshold-line" id="thresholdMarker"></div>
+              <div class="threshold-marker" id="thresholdMarker" style="left: 50%;"></div>
+            </div>
+            <div class="meter-labels" style="display: flex; justify-content: space-between; font-size: 0.65rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">
+              <span id="currentVolumeText">LEVEL: 0%</span>
+              <span>SENSITIVITY</span>
             </div>
           </div>
-          
-          <div class="setting-row">
-            <span>ความไว (Threshold)</span>
-            <input type="range" id="thresholdSlider" min="0" max="100" value="50">
-          </div>
-          <div class="setting-row">
-            <span>หน่วงเวลา (Hold)</span>
-            <input type="range" id="holdTimeSlider" min="400" max="3000" step="100" value="1500">
-          </div>
-          <div class="setting-row">
-            <span>ตัดเสียงลม (Wind)</span>
-            <input type="range" id="highpassSlider" min="50" max="500" step="10" value="100">
-          </div>
         </div>
-      </section>
-    </main>
+        <hr style="border: none; border-top: 1px solid var(--border-color); margin: 20px 0;">
 
-    <!-- 🟢 BOTTOM NAVIGATION -->
-    <nav class="bottom-nav">
-      <button class="nav-item active" data-view="setupView" id="navHome">
-        <span class="nav-icon">🏠</span>
-        <span class="nav-label">หน้าแรก</span>
-      </button>
-      <button class="nav-item" data-view="rideView" id="navRide" style="display:none;">
-        <span class="nav-icon">🏍️</span>
-        <span class="nav-label">การขับขี่</span>
-      </button>
-      <button class="nav-item" data-view="settingsView" id="navSettings">
-        <span class="nav-icon">⚙️</span>
-        <span class="nav-label">ตั้งค่า</span>
-      </button>
-    </nav>
-
-    <!-- 🆘 SOS BUTTON (Floating) -->
-    <button class="sos-fab" id="sosBtnMain" style="display:none;">
-      <svg class="sos-ring" viewBox="0 0 100 100">
-        <circle class="ring-bg" cx="50" cy="50" r="45"></circle>
-        <circle id="sosProgressCircle" class="ring-fill" cx="50" cy="50" r="45"></circle>
-      </svg>
-      <span class="sos-label">SOS</span>
-    </button>
+        <div class="setting-item"><div class="setting-label"><span>THRESHOLD</span><span class="setting-value" id="thresholdVal">50%</span></div><input type="range" id="thresholdSlider" min="0" max="100" step="1" value="50"></div>
+        <div class="setting-item"><div class="setting-label"><span>HOLD TIME</span><span class="setting-value" id="holdTimeVal">1.5s</span></div><input type="range" id="holdTimeSlider" min="400" max="3000" step="100" value="1500"></div>
+        <div class="setting-item"><div class="setting-label"><span>WIND FILTER</span><span class="setting-value" id="highpassVal">100 Hz</span></div><input type="range" id="highpassSlider" min="50" max="500" step="10" value="100"></div>
+        <div class="setting-item"><div class="setting-label"><span>VOICE BOOST</span><span class="setting-value" id="gainVal">1.4x</span></div><input type="range" id="gainSlider" min="10" max="22" step="1" value="14"></div>
+      </div>
+    </div>
   </div>
 
-  <!-- Scripts -->
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="./asset/js/webRTC.js?v=6.0.0"></script>
-  <script src="./asset/js/vad.js?v=6.0.0"></script>
-  <script src="./asset/js/app.js?v=6.0.0"></script>
+  <script src="./asset/js/webRTC.js?v=5.0.0"></script>
+  <script src="./asset/js/vad.js?v=5.0.0"></script>
+  <script src="./asset/js/app.js?v=5.0.0"></script>
 </body>
 </html>
