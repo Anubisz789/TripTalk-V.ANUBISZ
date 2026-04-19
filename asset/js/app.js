@@ -1,20 +1,47 @@
-// asset/js/app.js
-// 🔊 SOS SOUND ENGINE (Singleton AudioContext เพื่อแก้ปัญหามือถือบล็อกเสียง)
+// asset/js/app.js - UI Controller for TripTalk v6.0.0
+
+// 🟢 NAVIGATION SYSTEM
+function initNavigation() {
+  const navItems = document.querySelectorAll('.nav-item');
+  const panels = document.querySelectorAll('.view-panel');
+
+  navItems.forEach(item => {
+    item.addEventListener('click', () => {
+      const targetView = item.getAttribute('data-view');
+      
+      // Update Active Nav
+      navItems.forEach(i => i.classList.remove('active'));
+      item.classList.add('active');
+
+      // Show Target Panel
+      panels.forEach(p => {
+        p.style.display = p.id === targetView ? 'block' : 'none';
+        if (p.id === targetView) p.classList.add('active');
+        else p.classList.remove('active');
+      });
+
+      // Special case for Map: ensure it renders correctly when shown
+      if (targetView === 'rideView' && window.ttMap) {
+        setTimeout(() => window.ttMap.invalidateSize(), 300);
+      }
+    });
+  });
+}
+
+// 🟢 SOS SYSTEM
 let sosAudioCtx = null;
 let sosInterval = null;
+
 window.playSOSAlert = function(isActive) {
   if (!isActive) {
-    // ตรวจสอบว่ามีคนอื่นในห้องยัง SOS อยู่ไหม (จาก roomState)
     const hasOtherSOS = window.roomState ? Object.values(window.roomState).some(u => u.sos) : false;
-    if (!hasOtherSOS) {
-      if (sosInterval) { clearInterval(sosInterval); sosInterval = null; }
-    }
+    if (!hasOtherSOS && sosInterval) { clearInterval(sosInterval); sosInterval = null; }
     return;
   }
-  if (sosInterval) return; // ทำงานอยู่แล้วไม่ต้องเริ่มใหม่
+  if (sosInterval) return;
 
   if (!sosAudioCtx) sosAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (sosAudioCtx.state === 'suspended') sosAudioCtx.resume().catch(() => {});
+  if (sosAudioCtx.state === 'suspended') sosAudioCtx.resume();
 
   const triggerSound = () => {
     try {
@@ -28,446 +55,224 @@ window.playSOSAlert = function(isActive) {
       osc.frequency.exponentialRampToValueAtTime(440, now + 0.5);
       osc.start(now); osc.stop(now + 1.0);
       if (navigator.vibrate) navigator.vibrate([300, 100, 300]);
-    } catch(e) { console.warn('SOS Audio loop failed:', e); }
+    } catch(e) {}
   };
-
   triggerSound();
-  sosInterval = setInterval(triggerSound, 1200); // วนลูปเสียงทุก 1.2 วินาที
+  sosInterval = setInterval(triggerSound, 1200);
 };
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js?v=4.7.3').then(reg => {
-      reg.onupdatefound = () => {
-        const installingWorker = reg.installing;
-        installingWorker.onstatechange = () => {
-          if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) window.location.reload();
-        };
-      };
-    });
-  });
-}
+function initSOS() {
+  const sosBtn = document.getElementById('sosBtnMain');
+  const progressCircle = document.getElementById('sosProgressCircle');
+  if (!sosBtn || !progressCircle) return;
 
-window.wakeLock = null;
-window.requestWakeLock = async function() { try { if ('wakeLock' in navigator) window.wakeLock = await navigator.wakeLock.request('screen'); } catch (err) {} };
-window.releaseWakeLock = function() { if (window.wakeLock) { window.wakeLock.release(); window.wakeLock = null; } };
+  let isSOS = false;
+  let sosHoldTimer = null;
+  let sosProgressInterval = null;
+  const SOS_HOLD_MS = 3000; // Adjusted to 3s for better UX
+  const CIRCUMFERENCE = 2 * Math.PI * 45;
 
-const PRESETS = {
-  city: { name: '🏙️ ในเมือง', hp: 100, gain: 14, threshold: 50, hold: 1200 },
-  road: { name: '🛣️ ทริประยะไกล', hp: 250, gain: 18, threshold: 40, hold: 1500 },
-  speed: { name: '🏎️ ความเร็วสูง', hp: 450, gain: 22, threshold: 35, hold: 2000 }
-};
-
-window.customPresets = JSON.parse(localStorage.getItem('triptalk_presets') || '{}');
-function loadPresets() {
-  const presetSelector = document.getElementById('presetSelector'); if (!presetSelector) return;
-  presetSelector.innerHTML = '<option value="">🎛️ โหลดโปรไฟล์...</option>';
-  Object.keys(PRESETS).forEach(k => { const opt = document.createElement('option'); opt.value = k; opt.innerText = PRESETS[k].name; presetSelector.appendChild(opt); });
-  Object.keys(window.customPresets).forEach(k => { const opt = document.createElement('option'); opt.value = `custom_${k}`; opt.innerText = `⭐ ${window.customPresets[k].name.replace('⭐', '')}`; presetSelector.appendChild(opt); });
-  presetSelector.value = localStorage.getItem('lastSelectedPreset') || presetSelector.options[1]?.value || '';
-  presetSelector.dispatchEvent(new Event('change'));
-}
-
-function updateSliderLabels() {
-  const t = document.getElementById('thresholdSlider'); if (t) document.getElementById('thresholdVal').innerText = `${t.value}%`;
-  const h = document.getElementById('holdTimeSlider'); if (h) document.getElementById('holdTimeVal').innerText = `${(h.value / 1000).toFixed(1)}s`;
-  const hp = document.getElementById('highpassSlider'); if (hp) document.getElementById('highpassVal').innerText = `${hp.value} Hz`;
-  const g = document.getElementById('gainSlider'); if (g) document.getElementById('gainVal').innerText = `${(g.value / 10).toFixed(1)}x`;
-  const marker = document.getElementById('thresholdMarker'); if (marker && t) marker.style.left = `${t.value}%`;
-}
-
-function savePreset() {
-  const nameInput = document.getElementById('customPresetName'); const name = nameInput.value.trim();
-  if (!name) return alert('กรุณาใส่ชื่อ Preset');
-  if (name.length > 20) return alert('ชื่อ Preset ต้องไม่เกิน 20 ตัวอักษร');
-  if (Object.keys(PRESETS).includes(name)) return alert('ชื่อซ้ำกับ Preset ตั้งต้น');
-  window.customPresets[name] = {
-    name: `⭐${name}`, threshold: parseInt(document.getElementById('thresholdSlider').value),
-    hold: parseInt(document.getElementById('holdTimeSlider').value), hp: parseInt(document.getElementById('highpassSlider').value),
-    gain: parseFloat(document.getElementById('gainSlider').value) / 10
+  const setProgress = (percent) => {
+    const offset = CIRCUMFERENCE - (percent * CIRCUMFERENCE);
+    progressCircle.style.strokeDashoffset = offset;
   };
-  localStorage.setItem('triptalk_presets', JSON.stringify(window.customPresets));
-  nameInput.value = ''; loadPresets(); alert(`Preset "${name}" บันทึกแล้ว!`);
+
+  const startPress = (e) => {
+    e.preventDefault();
+    const startTime = Date.now();
+    sosHoldTimer = setTimeout(() => {
+      isSOS = !isSOS;
+      sosBtn.classList.toggle('active', isSOS);
+      window.playSOSAlert(isSOS);
+      if (window.ClearWayWebRTC?.sendSOS) window.ClearWayWebRTC.sendSOS(isSOS);
+      cancelPress();
+    }, SOS_HOLD_MS);
+
+    sosProgressInterval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(elapsed / SOS_HOLD_MS, 1);
+      setProgress(progress);
+    }, 50);
+  };
+
+  const cancelPress = () => {
+    clearTimeout(sosHoldTimer);
+    clearInterval(sosProgressInterval);
+    setProgress(0);
+  };
+
+  sosBtn.addEventListener('pointerdown', startPress);
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => sosBtn.addEventListener(ev, cancelPress));
 }
 
-function deletePreset() {
-  const sel = document.getElementById('presetSelector').value;
-  if (!sel.startsWith('custom_')) return alert('ไม่สามารถลบ Preset ตั้งต้นได้');
-  const key = sel.replace('custom_', '');
-  if (!confirm(`ลบ Preset "${key}" ใช่หรือไม่?`)) return;
-  delete window.customPresets[key];
-  localStorage.setItem('triptalk_presets', JSON.stringify(window.customPresets));
-  loadPresets(); alert(`ลบ "${key}" แล้ว`);
-}
-
-// ✅ UI STATE TOGGLING (แก้ช่องกรอกค้าง / ปุ่มออกหาย)
+// 🟢 RIDE TOGGLE
 window.isRiding = false;
 window.toggleRide = async function() {
-  const startRideBtn = document.getElementById('startRideBtn');
-  const leaveBtn = document.getElementById('leaveRoomBtn');
-  const inputGroup = document.querySelector('#roomControlPanel .input-group'); // ✅ เลือกตรงจุด
-  const nicknameInput = document.getElementById('nicknameInput'); const roomInput = document.getElementById('roomInput');
-  
+  const nicknameInput = document.getElementById('nicknameInput');
+  const roomInput = document.getElementById('roomInput');
+  const navRide = document.getElementById('navRide');
+  const sosBtn = document.getElementById('sosBtnMain');
+
   if (!window.isRiding) {
-    const nick = nicknameInput.value.trim(); const room = roomInput.value.trim();
+    const nick = nicknameInput.value.trim();
+    const room = roomInput.value.trim();
     if (!nick || !room) return alert('กรุณาใส่ชื่อและรหัสทริป');
 
     window.isRiding = true;
-    startRideBtn.style.display = 'none';
-    if (leaveBtn) {
-      leaveBtn.style.setProperty('display', 'flex', 'important'); // ✅ บังคับแสดงปุ่มออก
-    }
-    if (inputGroup) {
-      inputGroup.style.setProperty('display', 'none', 'important'); // ✅ บังคับซ่อนช่องกรอก
-    }
-
-    const testMicBtn = document.getElementById('testMicBtn'); if (testMicBtn) testMicBtn.disabled = true;
-    document.getElementById('membersPanel').style.display = 'block';
-    document.getElementById('mapDiv').style.display = 'block';
-    document.getElementById('networkStatusPanel').style.display = 'flex';
-    document.getElementById('sosBtnMain').style.display = 'flex';
+    
+    // UI Transitions
+    navRide.style.display = 'flex';
+    sosBtn.style.display = 'flex';
+    document.getElementById('navRide').click(); // Auto switch to ride view
     
     try {
-      const unlockCtx = new (window.AudioContext || window.webkitAudioContext)();
-      await unlockCtx.resume();
       const stream = await window.startMainMic();
-      window.ClearWayWebRTC.joinVoiceRoom(room, nick, stream);
-      window.requestWakeLock(); window.initMap();
+      if (window.ClearWayWebRTC?.joinVoiceRoom) {
+        window.ClearWayWebRTC.joinVoiceRoom(room, nick, stream);
+      }
+      window.initMap();
     } catch (err) {
-      console.error(err); window.isRiding = false;
-      startRideBtn.style.display = 'flex';
-      if (leaveBtn) leaveBtn.style.display = 'none';
-      if (inputGroup) inputGroup.style.display = 'flex';
-      if (testMicBtn) testMicBtn.disabled = false;
-      document.getElementById('membersPanel').style.display = 'none';
-      document.getElementById('mapDiv').style.display = 'none';
-      document.getElementById('networkStatusPanel').style.display = 'none';
-      document.getElementById('sosBtnMain').style.display = 'none';
+      console.error(err);
+      window.leaveRoom();
     }
   }
 };
 
 window.leaveRoom = function() {
-  if (!window.isRiding) return;
   window.isRiding = false;
-  document.getElementById('startRideBtn').style.display = 'flex';
-  const leaveBtn = document.getElementById('leaveRoomBtn');
-  if (leaveBtn) leaveBtn.style.setProperty('display', 'none', 'important');
-  const inputGroup = document.querySelector('#roomControlPanel .input-group');
-  if (inputGroup) inputGroup.style.setProperty('display', 'flex', 'important');
-  document.getElementById('startBtnText').innerText = 'เริ่มสนทนา';
-  document.querySelector('#startRideBtn .btn-icon').innerText = '🏍️';
-  
-  const testMicBtn = document.getElementById('testMicBtn'); if (testMicBtn) testMicBtn.disabled = false;
-  document.getElementById('membersPanel').style.display = 'none';
-  document.getElementById('mapDiv').style.display = 'none';
-  document.getElementById('networkStatusPanel').style.display = 'none';
+  document.getElementById('navRide').style.display = 'none';
   document.getElementById('sosBtnMain').style.display = 'none';
+  document.getElementById('navHome').click();
   
   window.stopMainMic();
-  if (window.ClearWayWebRTC.leaveVoiceRoom) window.ClearWayWebRTC.leaveVoiceRoom();
-  window.releaseWakeLock();
+  if (window.ClearWayWebRTC?.leaveVoiceRoom) window.ClearWayWebRTC.leaveVoiceRoom();
 };
 
+// 🟢 MAP SYSTEM
 window.ttMap = null; window.ttMarkers = {};
 window.initMap = function() {
-  if (window.ttMap) return; const mapDiv = document.getElementById('map'); if (!mapDiv) return;
+  if (window.ttMap) return;
+  const mapDiv = document.getElementById('map'); if (!mapDiv) return;
   window.ttMap = L.map('map').setView([13.7367, 100.5231], 13);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(window.ttMap);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OSM' }).addTo(window.ttMap);
   setTimeout(() => window.ttMap.invalidateSize(), 500);
 };
+
 window.updateMap = function(roomState) {
   if (!window.ttMap) return;
   Object.keys(roomState).forEach(id => {
     const user = roomState[id];
     if (user.location && user.location.lat !== 0) {
-      if (!window.ttMarkers[id]) { window.ttMarkers[id] = L.marker([user.location.lat, user.location.lng]).addTo(window.ttMap).bindPopup(user.nickname); }
-      else window.ttMarkers[id].setLatLng([user.location.lat, user.location.lng]);
+      if (!window.ttMarkers[id]) { 
+        window.ttMarkers[id] = L.marker([user.location.lat, user.location.lng]).addTo(window.ttMap).bindPopup(user.nickname); 
+      } else {
+        window.ttMarkers[id].setLatLng([user.location.lat, user.location.lng]);
+      }
     }
   });
 };
+
+// 🟢 UI RENDERER (Called by WebRTC.js)
 window.ClearWayUI = {
   renderMembers: (roomState, myPeerId) => {
     const list = document.getElementById('memberList'); if (!list) return;
     list.innerHTML = '';
     Object.keys(roomState).forEach(id => {
-      const user = roomState[id]; const li = document.createElement('li');
+      const user = roomState[id];
+      const li = document.createElement('li');
       li.className = `member-item ${user.isTalking ? 'talking' : ''} ${user.sos ? 'sos-alert' : ''}`;
-      li.innerHTML = `<span class="mic-icon">${user.isTalking ? '🔊' : '🔇'}</span><span class="member-name">${user.nickname} ${id === myPeerId ? '(คุณ)' : ''}</span>${user.sos ? '<span class="sos-tag">🆘 SOS</span>' : ''}`;
+      li.innerHTML = `
+        <div class="mic-status-icon">${user.sos ? '🆘' : (user.isTalking ? '🔊' : '🔇')}</div>
+        <div class="member-info">
+          <span class="member-name">${user.nickname} ${id === myPeerId ? '(คุณ)' : ''}</span>
+          <span class="member-role">${user.role}</span>
+        </div>
+      `;
       list.appendChild(li);
     });
     window.updateMap(roomState);
   }
 };
 
-document.addEventListener('DOMContentLoaded', () => {
-  if (document.getElementById('startRideBtn')) document.getElementById('startRideBtn').addEventListener('click', window.toggleRide);
-  
-  const presetSelector = document.getElementById('presetSelector');
-  if (presetSelector) {
-    presetSelector.addEventListener('change', (e) => {
-      const val = e.target.value; if (!val) return; localStorage.setItem('lastSelectedPreset', val);
-      let p = val.startsWith('custom_') ? window.customPresets[val.replace('custom_', '')] : PRESETS[val];
-      if (p) {
-        document.getElementById('thresholdSlider').value = p.threshold;
-        document.getElementById('holdTimeSlider').value = p.hold;
-        document.getElementById('highpassSlider').value = p.hp;
-        document.getElementById('gainSlider').value = p.gain;
-        if (window.applyPresetToAudio) window.applyPresetToAudio(p.hp, p.gain / 10);
-        updateSliderLabels();
-      }
-    });
-  }
-  
-  ['thresholdSlider', 'holdTimeSlider', 'highpassSlider', 'gainSlider'].forEach(id => {
-    const el = document.getElementById(id); if (el) el.addEventListener('input', updateSliderLabels);
-  });
-  
-  if (document.getElementById('savePresetBtn')) document.getElementById('savePresetBtn').addEventListener('click', savePreset);
-  if (document.getElementById('deletePresetBtn')) document.getElementById('deletePresetBtn').addEventListener('click', deletePreset);
-  
-  // 🔽 SOS BUTTON (รูปภาพ + Progress Circle + กดค้าง 15 วิ)
-  const sosBtn = document.getElementById('sosBtnMain');
-  const progressCircle = document.getElementById('sosProgressCircle');
-  if (sosBtn && progressCircle) {
-    let isSOS = false;
-    let sosHoldTimer = null;
-    let sosProgressInterval = null;
-    const SOS_HOLD_MS = 15000;
-    const CIRCUMFERENCE = 2 * Math.PI * 45; // 282.7
-
-    const setProgress = (percent) => {
-      const offset = CIRCUMFERENCE - (percent * CIRCUMFERENCE);
-      progressCircle.style.strokeDashoffset = offset;
-    };
-
-    const startSOSPress = (e) => {
-      if (e.button !== 0 && e.pointerType === 'mouse') return; // รับเฉพาะคลิกซ้าย
-      e.preventDefault();
-      const startTime = Date.now();
-      sosBtn.classList.add('pressing');
-      
-      sosHoldTimer = setTimeout(() => {
-        isSOS = !isSOS;
-        sosBtn.classList.toggle('active', isSOS);
-        window.playSOSAlert(isSOS); 
-        window.ClearWayWebRTC.sendSOS(isSOS); 
-        cancelSOSPress();
-      }, SOS_HOLD_MS);
-
-      sosProgressInterval = setInterval(() => {
-        const elapsed = Date.now() - startTime;
-        const progress = Math.min(elapsed / SOS_HOLD_MS, 1);
-        setProgress(progress);
-      }, 50);
-    };
-
-    const cancelSOSPress = () => {
-      clearTimeout(sosHoldTimer);
-      clearInterval(sosProgressInterval);
-      sosBtn.classList.remove('pressing');
-      setProgress(0);
-    };
-
-    sosBtn.addEventListener('pointerdown', startSOSPress);
-    sosBtn.addEventListener('pointerup', cancelSOSPress);
-    sosBtn.addEventListener('pointercancel', cancelSOSPress);
-    sosBtn.addEventListener('pointerleave', cancelSOSPress);
-    sosBtn.addEventListener('contextmenu', (e) => e.preventDefault());
-  }
-  
-  const vadToggle = document.getElementById('vadToggle'); const vadContent = document.getElementById('vadContent'); const vadIcon = document.getElementById('vadIcon');
-  if (vadToggle && vadContent && vadIcon) { vadToggle.addEventListener('click', () => { vadContent.classList.toggle('collapsed'); vadIcon.innerText = vadContent.classList.contains('collapsed') ? '▶' : '▼'; }); }
-  
-  // 🔽 LONG-PRESS 5s ENGINE (Pointer Events รองรับ Mouse & Touch)
-  const leaveBtn = document.getElementById('leaveRoomBtn');
-  if (leaveBtn) {
-    let pressTimer = null, progressInterval = null, pressStart = 0;
-    const HOLD_MS = 5000;
-    const textEl = leaveBtn.querySelector('.btn-text');
-
-    const startPress = (e) => {
-      e.preventDefault(); pressStart = Date.now(); leaveBtn.classList.add('pressing');
-      textEl.innerText = `ค้างไว้ 5.0s`;
-      pressTimer = setTimeout(() => { window.leaveRoom(); }, HOLD_MS);
-      progressInterval = setInterval(() => {
-        const elapsed = Date.now() - pressStart;
-        const remain = Math.max(0, (1 - elapsed / HOLD_MS)).toFixed(1);
-        textEl.innerText = `ค้างไว้ ${remain}s`;
-        const progress = elapsed / HOLD_MS;
-        leaveBtn.style.background = `rgba(255, 75, 75, ${progress * 0.4})`;
-        leaveBtn.style.transform = `scale(${0.97 + progress * 0.03})`;
-      }, 50);
-    };
-
-    const cancelPress = () => {
-      clearTimeout(pressTimer); clearInterval(progressInterval);
-      leaveBtn.classList.remove('pressing');
-      leaveBtn.style.background = ''; leaveBtn.style.transform = '';
-      textEl.innerText = 'ออกจากห้อง';
-    };
-
-    leaveBtn.addEventListener('pointerdown', startPress);
-    leaveBtn.addEventListener('pointerup', cancelPress);
-    leaveBtn.addEventListener('pointercancel', cancelPress);
-    leaveBtn.addEventListener('pointerleave', cancelPress);
-  }
-  
-  loadPresets(); updateSliderLabels();
-});
-
-
-// ===== 🎨 THEME SYSTEM & UI CUSTOMIZATION =====
-
-// 🎨 Theme Configuration
+// 🟢 THEME & SETTINGS
 const THEMES = {
-  '': { name: 'Night Blue', icon: '🌙' },
-  'light': { name: 'Light Mode', icon: '☀️' },
-  'dark': { name: 'Dark Mode', icon: '🌙' },
-  'night-rider': { name: 'Night Rider', icon: '🏍️' },
-  'high-contrast': { name: 'High Contrast', icon: '⚪' },
-  'ocean': { name: 'Ocean Blue', icon: '🌊' },
-  'tropical': { name: 'Tropical', icon: '🌴' },
-  'gaming': { name: 'Gaming', icon: '🎮' }
+  '': '🌙', 'light': '☀️', 'dark': '🌑', 'night-rider': '🏍️', 
+  'high-contrast': '⚪', 'ocean': '🌊', 'tropical': '🌴', 'gaming': '🎮'
 };
 
-// 💾 Load Theme from LocalStorage
-function loadTheme() {
-  const savedTheme = localStorage.getItem('triptalk_theme') || '';
-  applyTheme(savedTheme);
-}
-
-// 🎨 Apply Theme
-function applyTheme(themeName) {
-  if (themeName) {
-    document.documentElement.setAttribute('data-theme', themeName);
-  } else {
-    document.documentElement.removeAttribute('data-theme');
-  }
-  localStorage.setItem('triptalk_theme', themeName);
-  updateThemeSwitcher(themeName);
-}
-
-// 🎨 Build Theme Switcher Buttons
-function buildThemeSwitcher() {
+function initSettings() {
   const switcher = document.getElementById('themeSwitcher');
   if (!switcher) return;
-  
-  switcher.innerHTML = '';
-  Object.entries(THEMES).forEach(([key, theme]) => {
+
+  Object.entries(THEMES).forEach(([key, icon]) => {
     const btn = document.createElement('button');
     btn.className = 'theme-btn';
-    btn.textContent = theme.icon;
-    btn.title = theme.name;
+    btn.textContent = icon;
     btn.dataset.theme = key;
-    btn.addEventListener('click', () => applyTheme(key));
+    if ((localStorage.getItem('triptalk_theme') || '') === key) btn.classList.add('active');
+    
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      if (key) document.documentElement.setAttribute('data-theme', key);
+      else document.documentElement.removeAttribute('data-theme');
+      localStorage.setItem('triptalk_theme', key);
+    });
     switcher.appendChild(btn);
   });
-}
 
-// 🎨 Update Active Theme Button
-function updateThemeSwitcher(themeName) {
-  document.querySelectorAll('.theme-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.theme === themeName);
+  // Font Size
+  const fsSlider = document.getElementById('fontSizeSlider');
+  fsSlider.value = localStorage.getItem('triptalk_fontSize') || '100';
+  document.documentElement.style.fontSize = `${fsSlider.value}%`;
+  fsSlider.addEventListener('input', (e) => {
+    document.documentElement.style.fontSize = `${e.target.value}%`;
+    localStorage.setItem('triptalk_fontSize', e.target.value);
   });
 }
 
-// 📏 Font Size Control
-function setupFontSizeControl() {
-  const slider = document.getElementById('fontSizeSlider');
-  const label = document.getElementById('fontSizeVal');
-  
-  if (!slider) return;
-  
-  // Load saved font size
-  const savedFontSize = localStorage.getItem('triptalk_fontSize') || '100';
-  slider.value = savedFontSize;
-  applyFontSize(parseInt(savedFontSize));
-  
-  slider.addEventListener('input', (e) => {
-    const size = parseInt(e.target.value);
-    applyFontSize(size);
-    localStorage.setItem('triptalk_fontSize', size);
-    if (label) label.innerText = `${size}%`;
-  });
+// 🟢 LEAVE LONG PRESS
+function initLeaveBtn() {
+  const leaveBtn = document.getElementById('leaveRoomBtn');
+  if (!leaveBtn) return;
+  let timer = null;
+  const HOLD_MS = 3000;
+
+  const startPress = (e) => {
+    e.preventDefault();
+    leaveBtn.style.background = 'rgba(255, 75, 75, 0.2)';
+    timer = setTimeout(() => { window.leaveRoom(); }, HOLD_MS);
+  };
+  const cancelPress = () => {
+    clearTimeout(timer);
+    leaveBtn.style.background = '';
+  };
+
+  leaveBtn.addEventListener('pointerdown', startPress);
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => leaveBtn.addEventListener(ev, cancelPress));
 }
 
-function applyFontSize(percent) {
-  document.documentElement.style.fontSize = `${percent}%`;
-}
-
-// 🎯 Compact Mode Toggle
-function setupCompactMode() {
-  const toggle = document.getElementById('compactModeToggle');
-  if (!toggle) return;
-  
-  const isCompact = localStorage.getItem('triptalk_compact') === 'true';
-  toggle.checked = isCompact;
-  applyCompactMode(isCompact);
-  
-  toggle.addEventListener('change', (e) => {
-    applyCompactMode(e.target.checked);
-    localStorage.setItem('triptalk_compact', e.target.checked);
-  });
-}
-
-function applyCompactMode(isCompact) {
-  if (isCompact) {
-    document.documentElement.style.setProperty('--gap-size', '12px');
-    document.documentElement.style.setProperty('--padding-size', '12px');
-  } else {
-    document.documentElement.style.setProperty('--gap-size', '24px');
-    document.documentElement.style.setProperty('--padding-size', '20px');
-  }
-}
-
-// 🎨 Theme Toggle Panel
-function setupThemePanel() {
-  const themeToggle = document.getElementById('themeToggle');
-  const themeContent = document.getElementById('themeContent');
-  const themeIcon = document.getElementById('themeIcon');
-  const themeSelector = document.getElementById('themeSelector');
-  
-  if (!themeToggle || !themeContent) return;
-  
-  // Load saved theme in selector
-  const savedTheme = localStorage.getItem('triptalk_theme') || '';
-  if (themeSelector) {
-    themeSelector.value = savedTheme;
-    themeSelector.addEventListener('change', (e) => {
-      applyTheme(e.target.value);
-    });
-  }
-  
-  // Toggle panel
-  themeToggle.addEventListener('click', () => {
-    themeContent.classList.toggle('collapsed');
-    if (themeIcon) {
-      themeIcon.innerText = themeContent.classList.contains('collapsed') ? '▶' : '▼';
-    }
-  });
-}
-
-// 🚀 Initialize Theme System on Page Load
+// 🟢 INITIALIZATION
 document.addEventListener('DOMContentLoaded', () => {
-  // Load and apply saved theme
-  loadTheme();
+  initNavigation();
+  initSOS();
+  initSettings();
+  initLeaveBtn();
   
-  // Build theme switcher UI
-  buildThemeSwitcher();
-  
-  // Setup UI customization controls
-  setupFontSizeControl();
-  setupCompactMode();
-  setupThemePanel();
-});
+  const startBtn = document.getElementById('startRideBtn');
+  if (startBtn) startBtn.addEventListener('click', window.toggleRide);
 
-// 📱 Detect System Theme Preference (Optional Auto-Switch)
-if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').media !== 'not all') {
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-    // Auto-switch only if user hasn't manually set a theme
-    if (!localStorage.getItem('triptalk_theme_manual')) {
-      applyTheme(e.matches ? 'dark' : 'light');
-    }
+  // VAD Slider Labels Sync (Simple version for v6)
+  ['thresholdSlider', 'holdTimeSlider', 'highpassSlider'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', () => {
+      if (id === 'thresholdSlider' && document.getElementById('thresholdMarker')) {
+        document.getElementById('thresholdMarker').style.left = `${el.value}%`;
+      }
+    });
   });
-}
+
+  // Load Initial Theme
+  const savedTheme = localStorage.getItem('triptalk_theme');
+  if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+});
