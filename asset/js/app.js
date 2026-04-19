@@ -226,15 +226,23 @@ document.addEventListener('DOMContentLoaded', () => {
   if (document.getElementById('savePresetBtn')) document.getElementById('savePresetBtn').addEventListener('click', savePreset);
   if (document.getElementById('deletePresetBtn')) document.getElementById('deletePresetBtn').addEventListener('click', deletePreset);
   
-  // 🔽 SOS BUTTON (กดค้าง 15 วิ เพื่อเริ่ม/ยกเลิก)
+  // 🔽 SOS BUTTON (รูปภาพ + Progress Circle + กดค้าง 15 วิ)
   const sosBtn = document.getElementById('sosBtnMain');
-  if (sosBtn) {
+  const progressCircle = document.getElementById('sosProgressCircle');
+  if (sosBtn && progressCircle) {
     let isSOS = false;
     let sosHoldTimer = null;
     let sosProgressInterval = null;
-    const SOS_HOLD_MS = 15000; // 15 วินาที
+    const SOS_HOLD_MS = 15000;
+    const CIRCUMFERENCE = 2 * Math.PI * 45; // 282.7
+
+    const setProgress = (percent) => {
+      const offset = CIRCUMFERENCE - (percent * CIRCUMFERENCE);
+      progressCircle.style.strokeDashoffset = offset;
+    };
 
     const startSOSPress = (e) => {
+      if (e.button !== 0 && e.pointerType === 'mouse') return; // รับเฉพาะคลิกซ้าย
       e.preventDefault();
       const startTime = Date.now();
       sosBtn.classList.add('pressing');
@@ -242,34 +250,29 @@ document.addEventListener('DOMContentLoaded', () => {
       sosHoldTimer = setTimeout(() => {
         isSOS = !isSOS;
         sosBtn.classList.toggle('active', isSOS);
-        sosBtn.innerText = isSOS ? 'ยกเลิก SOS' : '🆘 SOS';
         window.playSOSAlert(isSOS); 
         window.ClearWayWebRTC.sendSOS(isSOS); 
-        cancelSOSPress(); // รีเซ็ตสถานะการกด
+        cancelSOSPress();
       }, SOS_HOLD_MS);
 
       sosProgressInterval = setInterval(() => {
         const elapsed = Date.now() - startTime;
-        const remain = Math.max(0, (SOS_HOLD_MS - elapsed) / 1000).toFixed(1);
-        sosBtn.innerText = `${isSOS ? 'ยกเลิก' : 'เริ่ม'}ใน ${remain}s`;
-        const progress = elapsed / SOS_HOLD_MS;
-        sosBtn.style.background = isSOS ? `rgba(255,255,255,${progress})` : `rgba(244, 67, 54, ${0.4 + progress * 0.6})`;
-      }, 100);
+        const progress = Math.min(elapsed / SOS_HOLD_MS, 1);
+        setProgress(progress);
+      }, 50);
     };
 
     const cancelSOSPress = () => {
       clearTimeout(sosHoldTimer);
       clearInterval(sosProgressInterval);
       sosBtn.classList.remove('pressing');
-      sosBtn.style.background = '';
-      sosBtn.innerText = isSOS ? 'ยกเลิก SOS' : '🆘 SOS';
+      setProgress(0);
     };
 
     sosBtn.addEventListener('pointerdown', startSOSPress);
     sosBtn.addEventListener('pointerup', cancelSOSPress);
     sosBtn.addEventListener('pointercancel', cancelSOSPress);
     sosBtn.addEventListener('pointerleave', cancelSOSPress);
-    // ✅ ป้องกันเมนู Copy/Context Menu ขึ้นมาขัดจังหวะการกดค้าง
     sosBtn.addEventListener('contextmenu', (e) => e.preventDefault());
   }
   
