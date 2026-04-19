@@ -6,11 +6,30 @@
   <title>TripTalk | Connect the Ride. Clear the Way.</title>
   <link rel="manifest" href="./manifest.json">
   <meta name="theme-color" content="#00d2ff">
-  <link rel="stylesheet" href="./asset/css/style.css?v=4.7.3">
+  <link rel="stylesheet" href="./asset/css/style.css?v=5.0.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    /* 🎨 Theme Switcher UI */
+    .theme-switcher {
+      position: fixed; top: 10px; right: 10px; z-index: 999;
+      display: flex; gap: 5px; flex-wrap: wrap; max-width: 200px;
+      background: var(--panel-bg); padding: 8px; border-radius: 12px;
+      border: 1px solid var(--border-color);
+    }
+    .theme-btn {
+      width: 36px; height: 36px; border-radius: 8px; border: 2px solid transparent;
+      cursor: pointer; transition: all 0.2s; font-size: 16px; background: transparent;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .theme-btn:hover { transform: scale(1.08); }
+    .theme-btn.active { border-color: var(--primary-color); box-shadow: 0 0 8px var(--glow-shadow); }
+  </style>
 </head>
 <body>
   <div class="app-container">
+    <!-- 🎨 THEME SWITCHER -->
+    <div class="theme-switcher" id="themeSwitcher"></div>
+
     <header>
       <h1>TripTalk</h1>
       <p class="tagline">Connect the Ride. Clear the Way.</p>
@@ -40,7 +59,6 @@
         <span class="btn-icon">🏍️</span>
         <span id="startBtnText">เริ่มสนทนา</span>
       </button>
-      <!-- เพิ่มปุ่มออกห้องแยกชัดเจน -->
       <button class="btn-danger-outline" id="leaveRoomBtn" style="display:none;">
         <span class="btn-icon">🚪</span>
         <span class="btn-text">ออกจากห้อง</span>
@@ -58,7 +76,6 @@
           <circle class="sos-progress-bg" cx="50" cy="50" r="45"></circle>
           <circle id="sosProgressCircle" class="sos-progress-bar" cx="50" cy="50" r="45" stroke-dasharray="283" stroke-dashoffset="283"></circle>
         </svg>
-        <!-- SOS Icon drawn with SVG for zero-filesize and no text-selection -->
         <svg class="sos-icon-svg" viewBox="0 0 100 100">
           <circle cx="50" cy="50" r="35" fill="#f44336"></circle>
           <text x="50" y="58" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-weight="900" font-size="22" style="pointer-events: none; user-select: none;">SOS</text>
@@ -66,6 +83,41 @@
       </button>
     </div>
 
+    <!-- 🎨 UI & THEME SETTINGS -->
+    <div class="settings-panel">
+      <div class="settings-header" id="themeToggle">
+        <h3>🎨 ตั้งค่า UI & Theme</h3>
+        <span class="toggle-icon" id="themeIcon">▼</span>
+      </div>
+      <div class="settings-content" id="themeContent">
+        <div class="setting-item">
+          <div class="setting-label"><span>เลือก Theme</span></div>
+          <select id="themeSelector" class="btn-secondary" style="width:100%; padding:10px; margin-bottom:15px;">
+            <option value="">🌙 Night Blue (Default)</option>
+            <option value="light">☀️ Light Mode</option>
+            <option value="dark">🌙 Dark Mode</option>
+            <option value="night-rider">🏍️ Night Rider</option>
+            <option value="high-contrast">⚪ High Contrast</option>
+            <option value="ocean">🌊 Ocean Blue</option>
+            <option value="tropical">🌴 Tropical</option>
+            <option value="gaming">🎮 Gaming</option>
+          </select>
+        </div>
+        <div class="setting-item">
+          <div class="setting-label"><span>ขนาดตัวอักษร</span><span class="setting-value" id="fontSizeVal">100%</span></div>
+          <input type="range" id="fontSizeSlider" min="80" max="140" step="10" value="100">
+          <p class="hint">ปรับขนาดตัวอักษรให้เหมาะสม</p>
+        </div>
+        <div class="setting-item">
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+            <input type="checkbox" id="compactModeToggle" style="width: 20px; height: 20px;">
+            <span>โหมด Compact (ลดระยะห่าง)</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 🔊 VAD SETTINGS -->
     <div class="settings-panel">
       <div class="settings-header" id="vadToggle">
         <h3>⚙️ ตั้งค่าตัดเสียงลม (VAD)</h3>
@@ -109,8 +161,8 @@
 
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="./asset/js/webRTC.js?v=4.7.3"></script>
-  <script src="./asset/js/vad.js?v=4.7.3"></script>
-  <script src="./asset/js/app.js?v=4.7.3"></script>
+  <script src="./asset/js/webRTC.js?v=5.0.0"></script>
+  <script src="./asset/js/vad.js?v=5.0.0"></script>
+  <script src="./asset/js/app.js?v=5.0.0"></script>
 </body>
 </html>
